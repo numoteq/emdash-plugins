@@ -1,0 +1,55 @@
+{
+	"name": "@numoteq/emdash-plugin-forward-email",
+	"version": "0.1.0",
+	"description": "Forward Email transport provider for EmDash",
+	"keywords": [
+		"email",
+		"emdash",
+		"emdash-plugin",
+		"forward-email"
+	],
+	"license": "MIT",
+	"author": {
+		"name": "NUMOTEQ s.r.o.",
+		"email": "info@numoteq.com",
+		"url": "https://numoteq.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/numoteq/emdash-plugins.git",
+		"directory": "packages/forward-email"
+	},
+	"files": [
+		"dist",
+		"emdash-plugin.jsonc",
+		"README.md",
+		"LICENSE"
+	],
+	"type": "module",
+	"main": "dist/index.mjs",
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"types": "./dist/index.d.mts"
+		},
+		"./sandbox": "./dist/plugin.mjs"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "emdash-plugin validate && emdash-plugin build",
+		"dev": "emdash-plugin dev",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@emdash-cms/plugin-cli": "0.8.0",
+		"emdash": "0.33.0",
+		"typescript": "5.9.3",
+		"vitest": "4.1.10"
+	},
+	"peerDependencies": {
+		"emdash": ">=0.33.0"
+	}
+}

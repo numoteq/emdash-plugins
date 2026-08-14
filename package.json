@@ -1,0 +1,39 @@
+{
+	"name": "emdash-plugins",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"build": "pnpm -r build",
+		"changeset": "changeset",
+		"check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+		"format": "oxfmt .",
+		"format:check": "oxfmt --check .",
+		"hooks:install": "simple-git-hooks",
+		"lint": "oxlint --deny-warnings --vitest-plugin .",
+		"release": "pnpm build && changeset publish",
+		"test": "pnpm -r test",
+		"typecheck": "pnpm -r typecheck",
+		"version-packages": "changeset version && pnpm install --lockfile-only"
+	},
+	"devDependencies": {
+		"@changesets/cli": "3.0.0",
+		"nano-staged": "1.0.2",
+		"oxfmt": "0.63.0",
+		"oxlint": "1.78.0",
+		"simple-git-hooks": "2.13.1"
+	},
+	"simple-git-hooks": {
+		"pre-commit": "pnpm exec nano-staged"
+	},
+	"nano-staged": {
+		"*.{js,cjs,mjs,ts,tsx}": [
+			"oxlint --fix --deny-warnings --vitest-plugin",
+			"oxfmt"
+		],
+		"*.{json,jsonc,yaml,yml,md}": "oxfmt"
+	},
+	"engines": {
+		"node": ">=24"
+	},
+	"packageManager": "pnpm@11.21.0"
+}
