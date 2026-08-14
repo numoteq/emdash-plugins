@@ -25,7 +25,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - uses: changesets/action@v2
+      - id: changesets
+        uses: changesets/action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           version-script: pnpm version-packages
@@ -35,3 +36,9 @@ jobs:
           create-github-releases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload EmDash registry bundles
+        if: steps.changesets.outputs.published == 'true'
+        run: node scripts/upload-emdash-bundles.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
