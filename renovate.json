@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "local>devops/renovate-config"
   ],
   "timezone": "Europe/Prague",
   "dependencyDashboard": true,
