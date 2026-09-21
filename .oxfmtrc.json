@@ -1,11 +1,6 @@
 {
-  "useTabs": true,
-  "printWidth": 100,
-  "proseWrap": "never",
-  "ignorePatterns": [
-    ".agents/**",
-    "dist",
-    "node_modules",
-    "pnpm-lock.yaml"
-  ]
+	"useTabs": true,
+	"printWidth": 100,
+	"proseWrap": "never",
+	"ignorePatterns": [".agents/**", "dist", "node_modules", "pnpm-lock.yaml"]
 }
