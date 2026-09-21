@@ -51,7 +51,7 @@
 	"devDependencies": {
 		"@emdash-cms/plugin-cli": "0.11.0",
 		"emdash": "0.38.0",
-		"typescript": "7.0.2",
+		"typescript": "6.0.3",
 		"vitest": "5.0.1"
 	},
 	"peerDependencies": {
