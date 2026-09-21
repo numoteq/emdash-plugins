@@ -1,8 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "local>devops/renovate-config"
-  ],
+  "extends": ["local>devops/renovate-config"],
   "timezone": "Europe/Prague",
   "dependencyDashboard": true,
   "prConcurrentLimit": 5,
