@@ -1,10 +1,10 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>devops/renovate-config"],
-  "timezone": "Europe/Prague",
-  "dependencyDashboard": true,
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 2,
-  "automerge": false,
-  "platformAutomerge": false
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["local>devops/renovate-config"],
+	"timezone": "Europe/Prague",
+	"dependencyDashboard": true,
+	"prConcurrentLimit": 5,
+	"prHourlyLimit": 2,
+	"automerge": false,
+	"platformAutomerge": false
 }
