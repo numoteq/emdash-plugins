@@ -5,3 +5,5 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
   simple-git-hooks: true
+
+minimumReleaseAge: 10080
