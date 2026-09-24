@@ -25,10 +25,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - id: changesets
-        uses: changesets/action@v2
+        uses: https://github.com/openscript/changesets-action@1967829df87d04313e295397cc26365b1c2c1eba # v2.1.2, Forgejo-compatible fork
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           version-script: pnpm version-packages
@@ -36,11 +37,13 @@ jobs:
           commit-message: "chore: version packages"
           pr-title: "chore: version packages"
           create-github-releases: true
+          push-with-git-cli: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Upload EmDash registry bundles
         if: steps.changesets.outputs.published == 'true'
         run: node scripts/upload-emdash-bundles.mjs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
