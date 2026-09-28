@@ -1,4 +1,11 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["local>devops/renovate-config"]
+	"extends": ["local>devops/renovate-config"],
+	"packageRules": [
+		{
+			"description": "TypeScript 7 ships no compiler API; @emdash-cms/plugin-cli builds declarations through it and still depends on typescript ^6",
+			"matchPackageNames": ["typescript"],
+			"allowedVersions": "<7"
+		}
+	]
 }
