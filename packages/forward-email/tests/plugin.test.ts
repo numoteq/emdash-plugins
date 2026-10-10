@@ -38,6 +38,26 @@ describe("deliverWithForwardEmail", () => {
 		);
 	});
 
+	it("passes CC and reply-to through", async () => {
+		const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 202 }));
+
+		await deliverWithForwardEmail(
+			fetchFn,
+			{ apiToken: "secret-token", from: "cms@example.com" },
+			{
+				to: "reader@example.net",
+				cc: ["editor@example.net", "owner@example.net"],
+				replyTo: "help@example.com",
+				subject: "Welcome",
+				text: "Hello",
+			},
+		);
+
+		const body = new URLSearchParams(String(fetchFn.mock.calls[0]![1]?.body));
+		expect(body.get("cc")).toBe("editor@example.net,owner@example.net");
+		expect(body.get("replyTo")).toBe("help@example.com");
+	});
+
 	it("surfaces a bounded Forward Email error response", async () => {
 		const fetchFn = vi
 			.fn<typeof fetch>()

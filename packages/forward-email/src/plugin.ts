@@ -12,7 +12,14 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 export async function deliverWithForwardEmail(
 	fetchFn: FetchFn,
 	settings: ForwardEmailSettings,
-	message: { to: string; subject: string; text: string; html?: string },
+	message: {
+		to: string;
+		cc?: string[];
+		replyTo?: string;
+		subject: string;
+		text: string;
+		html?: string;
+	},
 ): Promise<void> {
 	const body = new URLSearchParams({
 		from: settings.from,
@@ -21,6 +28,8 @@ export async function deliverWithForwardEmail(
 		text: message.text,
 	});
 	if (message.html) body.set("html", message.html);
+	if (message.cc?.length) body.set("cc", message.cc.join(","));
+	if (message.replyTo) body.set("replyTo", message.replyTo);
 
 	const response = await fetchFn(API_URL, {
 		method: "POST",

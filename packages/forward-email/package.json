@@ -49,12 +49,12 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@emdash-cms/plugin-cli": "0.13.0",
-		"emdash": "0.42.0",
+		"@emdash-cms/plugin-cli": "0.13.2",
+		"emdash": "1.1.0",
 		"typescript": "6.0.3",
 		"vitest": "5.0.2"
 	},
 	"peerDependencies": {
-		"emdash": ">=0.33.0"
+		"emdash": ">=1.0.0"
 	}
 }
