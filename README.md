@@ -7,6 +7,7 @@ Official EmDash plugins by NUMOTEQ, maintained in a public pnpm monorepo and pub
 | Package | Description |
 | --- | --- |
 | [`@numoteq/emdash-plugin-forward-email`](packages/forward-email) | Delivers transactional email through the Forward Email API. |
+| [`@numoteq/emdash-plugin-jetemail`](packages/jetemail) | Delivers transactional email through the JetEmail API. |
 
 ## Development
 

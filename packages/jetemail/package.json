@@ -1,0 +1,60 @@
+{
+	"name": "@numoteq/emdash-plugin-jetemail",
+	"version": "0.0.0",
+	"description": "JetEmail transport provider for EmDash",
+	"keywords": [
+		"email",
+		"emdash",
+		"emdash-plugin",
+		"jetemail"
+	],
+	"homepage": "https://github.com/numoteq/emdash-plugins/tree/main/packages/jetemail#readme",
+	"bugs": {
+		"url": "https://github.com/numoteq/emdash-plugins/issues"
+	},
+	"license": "MIT",
+	"author": {
+		"name": "NUMOTEQ s.r.o.",
+		"email": "info@numoteq.com",
+		"url": "https://www.numoteq.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/numoteq/emdash-plugins.git",
+		"directory": "packages/jetemail"
+	},
+	"files": [
+		"dist",
+		"emdash-plugin.jsonc",
+		"README.md",
+		"LICENSE"
+	],
+	"type": "module",
+	"sideEffects": false,
+	"main": "dist/index.mjs",
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"types": "./dist/index.d.mts"
+		},
+		"./sandbox": "./dist/plugin.mjs"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "emdash-plugin validate && emdash-plugin build",
+		"dev": "emdash-plugin dev",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@emdash-cms/plugin-cli": "0.13.2",
+		"emdash": "1.1.0",
+		"typescript": "6.0.3",
+		"vitest": "5.0.2"
+	},
+	"peerDependencies": {
+		"emdash": ">=1.0.0"
+	}
+}
