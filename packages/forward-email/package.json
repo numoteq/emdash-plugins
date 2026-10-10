@@ -1,6 +1,6 @@
 {
 	"name": "@numoteq/emdash-plugin-forward-email",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Forward Email transport provider for EmDash",
 	"keywords": [
 		"email",
