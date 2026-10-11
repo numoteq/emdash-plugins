@@ -10,6 +10,11 @@ permissions:
   contents: write
   pull-requests: write
 
+# The automatic token cannot open pull requests in a private repository
+# (forgejo/forgejo#13739), so the version PR is opened with a short-lived JWT
+# for the `bot` user's Authorized Integration "emdash-plugins release".
+enable-openid-connect: true
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -27,16 +32,24 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - id: jwt
+        env:
+          AUDIENCE: u:7:892a034e-a431-4667-9554-dd8a7e088e05
+        run: |
+          jwt=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | node -p 'JSON.parse(require("fs").readFileSync(0)).value')
+          echo "::add-mask::$jwt"
+          echo "token=$jwt" >> "$GITHUB_OUTPUT"
       - id: changesets
         uses: https://github.com/openscript/changesets-action@1967829df87d04313e295397cc26365b1c2c1eba # v2.1.2, Forgejo-compatible fork
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.jwt.outputs.token }}
           version-script: pnpm version-packages
           commit-message: "chore: version packages"
           pr-title: "chore: version packages"
           push-with-git-cli: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.jwt.outputs.token }}
       # npm publishing runs in the GitHub mirror (.github/workflows/release.yml).
       - id: releases
         if: steps.changesets.outputs.has-changesets == 'false'
