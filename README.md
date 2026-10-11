@@ -33,6 +33,11 @@ pnpm changeset
 
 ## Releases
 
-Merging changesets into `main` creates a release PR. Merging that PR publishes the changed packages to npm using Trusted Publishing, creates GitHub tags and releases, and attaches the corresponding EmDash registry bundles.
+The repository lives on Forgejo and is mirrored to GitHub (`github.com/numoteq/emdash-plugins`) by a Forgejo push mirror.
+
+- Forgejo (`.forgejo/workflows`) runs CI and, on `main`, opens the version PR from pending changesets. After that PR is merged it tags every new package version, creates the Forgejo release and attaches the EmDash registry bundle.
+- GitHub (`.github/workflows/release.yml`) only publishes versions that are not on npm yet, through npm Trusted Publishing. No npm token exists.
+
+A brand-new package must be published once by hand (`npm publish --access public` in its directory after `pnpm build`), because npm can only configure a trusted publisher for an existing package. Then add the trusted publisher on npmjs.com: GitHub Actions, repository `numoteq/emdash-plugins`, workflow `release.yml`.
 
 Sandbox-compatible plugins are also published to the experimental EmDash Registry under the verified `numoteq.com` publisher identity.

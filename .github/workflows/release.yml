@@ -1,5 +1,10 @@
 name: Release
 
+# Runs only in the GitHub mirror of the Forgejo repository. Forgejo reads
+# .forgejo/workflows and handles CI, version PRs, tags and releases; this
+# workflow only publishes new package versions to npm through Trusted
+# Publishing (OIDC), so no npm token exists anywhere.
+
 on:
   push:
     branches: [main]
@@ -7,17 +12,14 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
   id-token: write
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 12.7.0
@@ -27,23 +29,5 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - id: changesets
-        uses: https://github.com/openscript/changesets-action@1967829df87d04313e295397cc26365b1c2c1eba # v2.1.2, Forgejo-compatible fork
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          version-script: pnpm version-packages
-          publish-script: pnpm release
-          commit-message: "chore: version packages"
-          pr-title: "chore: version packages"
-          create-github-releases: true
-          push-with-git-cli: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Upload EmDash registry bundles
-        if: steps.changesets.outputs.published == 'true'
-        run: node scripts/upload-emdash-bundles.mjs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.published-packages }}
+      - run: pnpm build
+      - run: node scripts/publish-npm.mjs
