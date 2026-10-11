@@ -1,5 +1,11 @@
 # @numoteq/emdash-plugin-jetemail
 
+## 0.3.0
+
+### Minor Changes
+
+- 26eb101: The API client sends attachments (bytes or base64) through JetEmail.
+
 ## 0.2.0
 
 ### Minor Changes
