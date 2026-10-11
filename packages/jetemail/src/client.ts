@@ -6,6 +6,12 @@ export interface JetEmailSender {
 	fromEmail: string;
 }
 
+export interface JetEmailAttachment {
+	filename: string;
+	/** Raw bytes (Uint8Array or Node Buffer) or a base64 string. */
+	content: Uint8Array | string;
+}
+
 export interface JetEmailMessage {
 	to: string | string[];
 	cc?: string[];
@@ -13,6 +19,7 @@ export interface JetEmailMessage {
 	subject: string;
 	text?: string;
 	html?: string;
+	attachments?: JetEmailAttachment[];
 }
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -21,6 +28,15 @@ export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 export function formatSender(name: string, email: string): string {
 	const cleanName = name.replace(/[<>"\r\n]/g, "").trim();
 	return `${cleanName} <${email}>`;
+}
+
+function toBase64(content: Uint8Array | string): string {
+	if (typeof content === "string") return content;
+	let binary = "";
+	for (let i = 0; i < content.length; i += 0x8000) {
+		binary += String.fromCharCode(...content.subarray(i, i + 0x8000));
+	}
+	return btoa(binary);
 }
 
 export async function deliverWithJetEmail(
@@ -37,6 +53,12 @@ export async function deliverWithJetEmail(
 	if (message.html) body.html = message.html;
 	if (message.cc?.length) body.cc = message.cc;
 	if (message.replyTo) body.reply_to = message.replyTo;
+	if (message.attachments?.length) {
+		body.attachments = message.attachments.map((file) => ({
+			filename: file.filename,
+			data: toBase64(file.content),
+		}));
+	}
 
 	const response = await fetchFn(API_URL, {
 		method: "POST",

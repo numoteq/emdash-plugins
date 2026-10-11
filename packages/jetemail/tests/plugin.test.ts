@@ -145,3 +145,26 @@ describe("plugin", () => {
 		).rejects.toThrow("JetEmail is not configured");
 	});
 });
+
+describe("attachments", () => {
+	it("sends bytes and base64 strings as base64 data", async () => {
+		const fetchFn = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(Response.json({ id: "abc" }, { status: 201 }));
+
+		await deliverWithJetEmail(fetchFn, settings, {
+			to: "reader@example.net",
+			subject: "Invoice",
+			text: "Attached",
+			attachments: [
+				{ filename: "a.txt", content: new TextEncoder().encode("Hello") },
+				{ filename: "b.txt", content: "SGk=" },
+			],
+		});
+
+		expect(JSON.parse(String(fetchFn.mock.calls[0]![1]?.body)).attachments).toEqual([
+			{ filename: "a.txt", data: "SGVsbG8=" },
+			{ filename: "b.txt", data: "SGk=" },
+		]);
+	});
+});
