@@ -17,6 +17,34 @@ If the domain publishes JetEmail Domain Security (`_jm` TXT), add the API key's 
 
 The key is stored in the plugin-scoped KV store and is sent only to `https://api.jetemail.com/email`. The plugin requests only the fixed-host network and email transport registration capabilities. Recipients, CC and reply-to are passed through; EmDash email has no attachments.
 
+## Native use (Cloudflare Workers sites)
+
+Sites that configure EmDash in code can register the transport in `astro.config.mjs` instead; the API key then lives in a Worker secret and nothing is set in the admin:
+
+```js
+import { jetEmail } from "@numoteq/emdash-plugin-jetemail/native";
+
+emdash({
+	plugins: [jetEmail({ from: { email: "noreply@example.com", name: "Example" } })],
+});
+```
+
+```sh
+wrangler secret put JETEMAIL_API_KEY
+```
+
+Activate it under **Admin > Extensions** and select it under **Settings > Email**. Site code (contact forms) can send through the same client:
+
+```ts
+import { deliverWithJetEmail } from "@numoteq/emdash-plugin-jetemail/client";
+
+await deliverWithJetEmail(
+	fetch,
+	{ apiToken, fromName: "Example", fromEmail: "noreply@example.com" },
+	message,
+);
+```
+
 ## Development
 
 ```sh

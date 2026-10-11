@@ -37,13 +37,25 @@
 			"import": "./dist/index.mjs",
 			"types": "./dist/index.d.mts"
 		},
-		"./sandbox": "./dist/plugin.mjs"
+		"./sandbox": "./dist/plugin.mjs",
+		"./native": {
+			"import": "./dist/native/index.mjs",
+			"types": "./dist/native/index.d.mts"
+		},
+		"./native/plugin": {
+			"import": "./dist/native/plugin.mjs",
+			"types": "./dist/native/plugin.d.mts"
+		},
+		"./client": {
+			"import": "./dist/client.mjs",
+			"types": "./dist/client.d.mts"
+		}
 	},
 	"publishConfig": {
 		"access": "public"
 	},
 	"scripts": {
-		"build": "emdash-plugin validate && emdash-plugin build",
+		"build": "emdash-plugin validate && emdash-plugin build && tsdown",
 		"dev": "emdash-plugin dev",
 		"test": "vitest run",
 		"typecheck": "tsc --noEmit"
@@ -51,6 +63,7 @@
 	"devDependencies": {
 		"@emdash-cms/plugin-cli": "0.13.2",
 		"emdash": "1.1.0",
+		"tsdown": "0.20.3",
 		"typescript": "6.0.3",
 		"vitest": "5.0.2"
 	},

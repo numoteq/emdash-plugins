@@ -1,63 +1,10 @@
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
-const API_URL = "https://api.jetemail.com/email";
+import { deliverWithJetEmail, formatSender, type JetEmailSender } from "./client.js";
 
-interface JetEmailSettings {
-	apiToken: string;
-	fromName: string;
-	fromEmail: string;
-}
+export { deliverWithJetEmail, formatSender };
 
-interface JetEmailMessage {
-	to: string;
-	cc?: string[];
-	replyTo?: string;
-	subject: string;
-	text: string;
-	html?: string;
-}
-
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
-
-// JetEmail requires the sender as "Name <email>"; characters that would break that form are dropped.
-export function formatSender(name: string, email: string): string {
-	const cleanName = name.replace(/[<>"\r\n]/g, "").trim();
-	return `${cleanName} <${email}>`;
-}
-
-export async function deliverWithJetEmail(
-	fetchFn: FetchFn,
-	settings: JetEmailSettings,
-	message: JetEmailMessage,
-): Promise<void> {
-	const body: Record<string, unknown> = {
-		from: formatSender(settings.fromName, settings.fromEmail),
-		to: message.to,
-		subject: message.subject,
-		text: message.text,
-	};
-	if (message.html) body.html = message.html;
-	if (message.cc?.length) body.cc = message.cc;
-	if (message.replyTo) body.reply_to = message.replyTo;
-
-	const response = await fetchFn(API_URL, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${settings.apiToken}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(body),
-	});
-
-	if (!response.ok) {
-		const detail = (await response.text()).slice(0, 500);
-		throw new Error(
-			`JetEmail rejected the message with HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
-		);
-	}
-}
-
-async function getSettings(ctx: PluginContext): Promise<JetEmailSettings> {
+async function getSettings(ctx: PluginContext): Promise<JetEmailSender> {
 	const apiToken = await ctx.kv.get<string>("settings:apiToken");
 	const fromName = await ctx.kv.get<string>("settings:fromName");
 	const fromEmail = await ctx.kv.get<string>("settings:fromEmail");
