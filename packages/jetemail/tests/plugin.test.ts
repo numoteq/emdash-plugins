@@ -122,6 +122,42 @@ describe("plugin", () => {
 		expect(fetchFn).toHaveBeenCalledOnce();
 	});
 
+	it("defaults the sender name to the site name and applies the configured reply-to", async () => {
+		const hook = plugin.hooks?.["email:deliver"];
+		if (!hook || typeof hook !== "object" || !("handler" in hook)) {
+			throw new Error("email:deliver hook not found");
+		}
+
+		const fetchFn = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(Response.json({ id: "abc" }, { status: 201 }));
+		const values: Record<string, string> = {
+			"settings:apiToken": settings.apiToken,
+			"settings:fromName": "",
+			"settings:fromEmail": settings.fromEmail,
+			"settings:replyTo": "help@example.com",
+		};
+		const context = {
+			site: { name: "Example Site" },
+			http: { fetch: fetchFn },
+			kv: { get: vi.fn<(key: string) => Promise<string>>(async (key) => values[key]!) },
+			log: { info: vi.fn<() => void>() },
+		} as unknown as PluginContext;
+
+		await hook.handler(
+			{
+				message: { to: "reader@example.net", subject: "Welcome", text: "Hello" },
+				source: "system",
+			},
+			context,
+		);
+
+		expect(JSON.parse(String(fetchFn.mock.calls[0]![1]?.body))).toMatchObject({
+			from: "Example Site <cms@example.com>",
+			reply_to: "help@example.com",
+		});
+	});
+
 	it("refuses to deliver until it is configured", async () => {
 		const hook = plugin.hooks?.["email:deliver"];
 		if (!hook || typeof hook !== "object" || !("handler" in hook)) {
@@ -129,6 +165,7 @@ describe("plugin", () => {
 		}
 
 		const context = {
+			site: { name: "Example Site" },
 			http: { fetch: vi.fn<typeof fetch>() },
 			kv: { get: vi.fn<() => Promise<undefined>>(async () => undefined) },
 			log: { info: vi.fn<() => void>() },

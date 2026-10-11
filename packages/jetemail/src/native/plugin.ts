@@ -1,44 +1,24 @@
 import { definePlugin } from "emdash";
 import type { EmailDeliverEvent, PluginContext } from "emdash/plugin";
 
-import { deliverWithJetEmail } from "../client.js";
 import { PLUGIN_ID, PLUGIN_VERSION, assertValidConfig, type JetEmailConfig } from "./config.js";
-
-type LoadEnv = () => Promise<Record<string, unknown>>;
-
-// Hooks run without request context, so the secret comes from the Worker env module.
-async function loadWorkerEnv(): Promise<Record<string, unknown>> {
-	try {
-		const { env } = await import("./env.js");
-		return env;
-	} catch {
-		throw new Error(
-			"[jetemail] cloudflare:workers is not available; this provider runs only on Cloudflare Workers.",
-		);
-	}
-}
+import { defaultDeps, sendWithConfig, type SendDeps } from "./send.js";
 
 /** @internal Exported for tests. */
-export function createJetEmailDeliver(config: JetEmailConfig, loadEnv: LoadEnv = loadWorkerEnv) {
-	const secret = config.secret ?? "JETEMAIL_API_KEY";
+export function createJetEmailDeliver(config: JetEmailConfig, deps: SendDeps = defaultDeps) {
 	return async (event: EmailDeliverEvent, ctx: PluginContext) => {
-		const apiToken = (await loadEnv())[secret];
-		if (typeof apiToken !== "string" || !apiToken) {
-			throw new Error(
-				`[jetemail] Worker secret "${secret}" is not set (wrangler secret put ${secret}).`,
-			);
-		}
 		const { message } = event;
-		const result = await deliverWithJetEmail(
-			fetch,
-			{ apiToken, fromName: config.from.name, fromEmail: config.from.email },
-			{ ...message, replyTo: message.replyTo ?? config.replyTo },
-		);
-		ctx.log.info("Email delivered via JetEmail", {
-			to: message.to,
-			subject: message.subject,
-			id: result.id,
+		const result = await sendWithConfig(config, message, {
+			...deps,
+			siteTitle: async () => (await deps.siteTitle()) || ctx.site.name,
 		});
+		if (result.id) {
+			ctx.log.info("Email delivered via JetEmail", {
+				to: message.to,
+				subject: message.subject,
+				id: result.id,
+			});
+		}
 	};
 }
 

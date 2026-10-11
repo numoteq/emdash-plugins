@@ -24,6 +24,17 @@ export interface JetEmailMessage {
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
+/** JetEmail answered with a non-2xx status. HTTP 429 means the message was not accepted. */
+export class JetEmailError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
+		this.name = "JetEmailError";
+	}
+}
+
 // JetEmail requires the sender as "Name <email>"; characters that would break that form are dropped.
 export function formatSender(name: string, email: string): string {
 	const cleanName = name.replace(/[<>"\r\n]/g, "").trim();
@@ -71,8 +82,9 @@ export async function deliverWithJetEmail(
 
 	if (!response.ok) {
 		const detail = (await response.text()).slice(0, 500);
-		throw new Error(
+		throw new JetEmailError(
 			`JetEmail rejected the message with HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
+			response.status,
 		);
 	}
 	const result = (await response.json().catch(() => ({}))) as { id?: unknown };
