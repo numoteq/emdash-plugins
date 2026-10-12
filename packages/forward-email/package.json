@@ -52,7 +52,7 @@
 		"@emdash-cms/plugin-cli": "0.13.2",
 		"emdash": "1.1.0",
 		"typescript": "6.0.3",
-		"vitest": "5.0.2"
+		"vitest": "5.0.3"
 	},
 	"peerDependencies": {
 		"emdash": ">=1.0.0"
