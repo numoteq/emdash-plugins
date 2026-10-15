@@ -8,6 +8,7 @@ Official EmDash plugins by NUMOTEQ, maintained in a public pnpm monorepo and pub
 | --- | --- |
 | [`@numoteq/emdash-plugin-forward-email`](packages/forward-email) | Delivers transactional email through the Forward Email API. |
 | [`@numoteq/emdash-plugin-jetemail`](packages/jetemail) | Delivers transactional email through the JetEmail API. |
+| [`@numoteq/emdash-plugin-sgtm`](packages/sgtm) | Proxies first-party container and measurement requests from an Astro site to self-hosted server-side Google Tag Manager. |
 
 ## Development
 
@@ -19,7 +20,7 @@ pnpm hooks:install
 pnpm check
 ```
 
-Each plugin lives in `packages/<name>` and uses the official `emdash-plugin` toolchain for validation, development and builds. `pnpm check` runs formatting, linting, type checks, tests and production builds across the workspace.
+Each package lives in `packages/<name>`; EmDash plugins use the official `emdash-plugin` toolchain for validation, development and builds, and `pnpm check` runs formatting, linting, type checks, tests and production builds across the workspace.
 
 ## Versioning
 
