@@ -74,6 +74,14 @@ export function sgtmShimSource(paths: DerivedPaths): string {
 	}
 
 	function encode(value) {
+		// The container assigns script URLs as TrustedScriptURL objects where the
+		// browser supports Trusted Types; those stringify to the plain URL.
+		if (
+			(typeof window.TrustedScriptURL === "function" && value instanceof window.TrustedScriptURL) ||
+			(typeof window.URL === "function" && value instanceof window.URL)
+		) {
+			value = String(value);
+		}
 		if (typeof value !== "string" || value === "") {
 			return null;
 		}
@@ -169,7 +177,17 @@ export function sgtmShimSource(paths: DerivedPaths): string {
 			enumerable: descriptor.enumerable,
 			get: descriptor.get,
 			set: function (value) {
-				return descriptor.set.call(this, rewrite(value));
+				var rewritten = rewrite(value);
+				if (rewritten === value) {
+					return descriptor.set.call(this, value);
+				}
+				try {
+					return descriptor.set.call(this, rewritten);
+				} catch (error) {
+					// A page that enforces Trusted Types rejects the plain string.
+					void error;
+					return descriptor.set.call(this, value);
+				}
 			},
 		});
 	}

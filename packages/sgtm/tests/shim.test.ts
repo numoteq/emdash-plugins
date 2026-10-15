@@ -10,18 +10,29 @@ interface Harness {
 	fetchCalls: unknown[];
 	beacons: Array<[unknown, unknown]>;
 	xhrCalls: Array<[string, string]>;
-	scriptSrc: string[];
+	scriptSrc: unknown[];
 	imageSrc: string[];
 	iframeSrc: string[];
 	attributes: Array<[string, string]>;
 }
 
-/** Runs the shim against a minimal fake window; `window` is its only free identifier. */
-function install(target: DerivedPaths, times = 1): Harness {
+/** Stand-in for the browser's TrustedScriptURL: an opaque object that stringifies to the URL. */
+class FakeTrustedScriptURL {
+	constructor(private readonly url: string) {}
+	toString(): string {
+		return this.url;
+	}
+}
+
+/**
+ * Runs the shim against a minimal fake window; `window` is its only free identifier. With
+ * `enforceTrustedTypes`, script `src` rejects plain strings like a page with Trusted Types CSP.
+ */
+function install(target: DerivedPaths, times = 1, enforceTrustedTypes = false): Harness {
 	const fetchCalls: unknown[] = [];
 	const beacons: Array<[unknown, unknown]> = [];
 	const xhrCalls: Array<[string, string]> = [];
-	const scriptSrc: string[] = [];
+	const scriptSrc: unknown[] = [];
 	const imageSrc: string[] = [];
 	const iframeSrc: string[] = [];
 	const attributes: Array<[string, string]> = [];
@@ -38,7 +49,10 @@ function install(target: DerivedPaths, times = 1): Harness {
 			return this.current;
 		}
 		set src(value: string) {
-			this.current = value;
+			if (enforceTrustedTypes && typeof value === "string") {
+				throw new TypeError("This document requires 'TrustedScriptURL' assignment.");
+			}
+			this.current = String(value);
 			scriptSrc.push(value);
 		}
 	}
@@ -90,6 +104,7 @@ function install(target: DerivedPaths, times = 1): Harness {
 		XMLHttpRequest: FakeXhr,
 		Element: FakeElement,
 		HTMLScriptElement: FakeScript,
+		TrustedScriptURL: FakeTrustedScriptURL,
 		HTMLImageElement: FakeImage,
 		HTMLIFrameElement: FakeIframe,
 	};
@@ -244,6 +259,29 @@ describe("sgtmLoaderShim", () => {
 		expect(plaintext(harness.attributes[0]![1])).toBe("/k7/legacy.js");
 		expect(harness.attributes[0]![0]).toBe("src");
 		expect(harness.attributes[1]).toEqual(["href", "/k7/not-a-src.js"]);
+	});
+
+	it("encodes a TrustedScriptURL assigned to a script src", () => {
+		const harness = install(paths);
+		const Script = harness.window["HTMLScriptElement"] as new () => { src: unknown };
+
+		const script = new Script();
+		script.src = new FakeTrustedScriptURL("/k7/gtm.js?id=GTM-X&gtg_health=1");
+		script.src = new FakeTrustedScriptURL("https://cdn.example/other.js");
+
+		expect(plaintext(harness.scriptSrc[0])).toBe("/k7/gtm.js?id=GTM-X&gtg_health=1");
+		expect(harness.scriptSrc[1]).toBeInstanceOf(FakeTrustedScriptURL);
+	});
+
+	it("keeps the TrustedScriptURL when the page enforces Trusted Types", () => {
+		const harness = install(paths, 1, true);
+		const Script = harness.window["HTMLScriptElement"] as new () => { src: unknown };
+		const trusted = new FakeTrustedScriptURL("/k7/gtm.js?id=GTM-X");
+
+		const script = new Script();
+		script.src = trusted;
+
+		expect(harness.scriptSrc).toEqual([trusted]);
 	});
 
 	it("installs itself once", async () => {
