@@ -1,6 +1,6 @@
 {
 	"name": "@numoteq/emdash-plugin-sgtm",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "First-party, ad-blocker-resistant proxy from an Astro site on Cloudflare Workers to self-hosted server-side Google Tag Manager",
 	"keywords": [
 		"astro",
