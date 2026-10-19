@@ -24,6 +24,28 @@ importers:
         specifier: 2.14.0
         version: 2.14.0
 
+  packages/ahasend:
+    dependencies:
+      '@ahasend/sdk':
+        specifier: 0.3.0
+        version: 0.3.0
+    devDependencies:
+      '@emdash-cms/plugin-cli':
+        specifier: 0.13.2
+        version: 0.13.2(@atcute/cbor@2.3.7(@atcute/cid@2.4.2))(@atcute/cid@2.4.2)(@atcute/identity@2.0.2(@atcute/lexicons@2.1.0)(typescript@6.0.3))(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
+      emdash:
+        specifier: 1.1.0
+        version: 1.1.0(@astrojs/react@6.0.6(@types/node@26.6.1)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(yaml@2.9.1))(@atcute/cbor@2.3.7(@atcute/cid@2.4.2))(@atcute/cid@2.4.2)(@atcute/identity@2.0.2(@atcute/lexicons@2.1.0)(typescript@6.0.3))(@date-fns/tz@1.5.0)(@floating-ui/dom@1.8.0)(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(astro@7.3.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.6.1)(yaml@2.9.1))(date-fns@4.4.0)(echarts@6.1.0)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+      tsdown:
+        specifier: 0.23.0
+        version: 0.23.0(typescript@6.0.3)(unrun@0.2.39)
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.0.3
+        version: 5.0.3(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(yaml@2.9.1))
+
   packages/forward-email:
     devDependencies:
       '@emdash-cms/plugin-cli':
@@ -74,6 +96,9 @@ importers:
         version: 5.0.3(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(yaml@2.9.1))
 
 packages:
+  '@ahasend/sdk@0.3.0':
+    resolution: {integrity: sha512-6gQkW/fRjlBiJo8lfJ2odsWLj+++L6tFBsZQuM5ZU13m2/SCKSFq5hgZdjEHmSZUbzG6+yqjWeXxxHHITr1ScQ==}
+    engines: {node: '>=22'}
 
   '@astrojs/compiler-binding-android-arm64@0.4.1':
     resolution: {integrity: sha512-Wtx2DZORuNTLASLLZ8hlrjFaJe1LUloatcCn9EPq7knBhRpjMGXeJANIJMeBZG4igvz7x+3nyAJM2iwCSW9xog==}
@@ -4292,6 +4317,8 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ahasend/sdk@0.3.0': {}
 
   '@astrojs/compiler-binding-android-arm64@0.4.1':
     optional: true

@@ -1,0 +1,22 @@
+{
+	"$schema": "./node_modules/@emdash-cms/plugin-cli/schemas/emdash-plugin.schema.json",
+	"slug": "ahasend",
+	"publisher": "did:plc:nna4pfpnegfsgaym44xqhawf", // numoteq.com
+	"license": "MIT",
+	"author": {
+		"name": "NUMOTEQ s.r.o.",
+		"url": "https://www.numoteq.com",
+		"email": "info@numoteq.com",
+	},
+	"security": { "email": "info@numoteq.com" },
+	"name": "AhaSend",
+	"description": "Delivers EmDash transactional email through the AhaSend API.",
+	"keywords": ["email", "transactional", "ahasend"],
+	"repo": "https://github.com/numoteq/emdash-plugins",
+	"capabilities": ["network:request", "hooks.email-transport:register"],
+	"allowedHosts": ["api.ahasend.com"],
+	"storage": {},
+	"admin": {
+		"pages": [{ "path": "/settings", "label": "AhaSend", "icon": "mail" }],
+	},
+}
