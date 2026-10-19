@@ -96,6 +96,7 @@ importers:
         version: 5.0.3(@types/node@26.6.1)(vite@8.3.0(@types/node@26.6.1)(esbuild@0.28.2)(yaml@2.9.1))
 
 packages:
+
   '@ahasend/sdk@0.3.0':
     resolution: {integrity: sha512-6gQkW/fRjlBiJo8lfJ2odsWLj+++L6tFBsZQuM5ZU13m2/SCKSFq5hgZdjEHmSZUbzG6+yqjWeXxxHHITr1ScQ==}
     engines: {node: '>=22'}
