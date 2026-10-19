@@ -4,12 +4,12 @@ Official EmDash plugins by NUMOTEQ, maintained in a public pnpm monorepo and pub
 
 ## Plugins
 
-| Package | Description |
-| --- | --- |
-| [`@numoteq/emdash-plugin-ahasend`](packages/ahasend) | Delivers transactional email through the AhaSend API. |
-| [`@numoteq/emdash-plugin-forward-email`](packages/forward-email) | Delivers transactional email through the Forward Email API. |
-| [`@numoteq/emdash-plugin-jetemail`](packages/jetemail) | Delivers transactional email through the JetEmail API. |
-| [`@numoteq/emdash-plugin-sgtm`](packages/sgtm) | Proxies first-party container and measurement requests from an Astro site to self-hosted server-side Google Tag Manager. |
+| Package | Description | Status |
+| --- | --- | --- |
+| [`@numoteq/emdash-plugin-ahasend`](packages/ahasend) | Delivers transactional email through the AhaSend API. | Active |
+| [`@numoteq/emdash-plugin-forward-email`](packages/forward-email) | Delivers transactional email through the Forward Email API. | Active |
+| [`@numoteq/emdash-plugin-jetemail`](packages/jetemail) | Delivers transactional email through the JetEmail API. | Deprecated — use `@numoteq/emdash-plugin-ahasend` |
+| [`@numoteq/emdash-plugin-sgtm`](packages/sgtm) | Proxies first-party container and measurement requests from an Astro site to self-hosted server-side Google Tag Manager. | Active |
 
 ## Development
 

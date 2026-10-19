@@ -1,5 +1,7 @@
 # `@numoteq/emdash-plugin-jetemail`
 
+> **Deprecated.** This plugin is replaced by [`@numoteq/emdash-plugin-ahasend`](../ahasend), which sends through the AhaSend API. It stays published so existing sites keep working, but it receives no further changes; new and migrated sites use the AhaSend plugin.
+
 Sandbox-compatible [JetEmail](https://jetemail.com) transport provider for EmDash.
 
 ## Install
