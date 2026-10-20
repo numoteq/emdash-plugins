@@ -1,93 +1,59 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 
-import { sgtmLoaderPath, sgtmMiddleware, type SgtmAstroContext } from "../src/index.js";
+import { sgtmLoaderPath, sgtmMiddleware, type SgtmOptions } from "../src/index.js";
 
-const secret = "s3cret-per-site";
-const prefix = "/k7";
-const gtmId = "GTM-NTQ37T97";
+const origin = "https://site.example";
+const options: SgtmOptions = {
+	gtmId: "GTM-NTQ37T97",
+	upstream: {
+		fetch: async () => new Response("var a=1;", { headers: { "content-type": "text/javascript" } }),
+	},
+};
 
-function upstream() {
-	const calls: Request[] = [];
-	return {
-		calls,
-		binding: {
-			async fetch(request: Request): Promise<Response> {
-				calls.push(request);
-				return new Response("sgtm", { status: 202 });
-			},
-		},
-	};
-}
+const next = () => Promise.resolve(new Response("site"));
+
+describe("sgtmLoaderPath", () => {
+	it("returns the loader path only for complete options", () => {
+		expect(sgtmLoaderPath(options)).toMatch(/^\/k7\/[0-9a-z]+\.js$/);
+		expect(sgtmLoaderPath({ ...options, prefix: "/p" })).toMatch(/^\/p\//);
+		expect(sgtmLoaderPath({ ...options, gtmId: undefined })).toBeUndefined();
+		expect(sgtmLoaderPath({ ...options, upstream: undefined })).toBeUndefined();
+		expect(sgtmLoaderPath({ ...options, upstream: "not a url" })).toBeUndefined();
+	});
+});
 
 describe("sgtmMiddleware", () => {
-	it("passes requests outside the prefix to the next middleware", async () => {
-		const { binding, calls } = upstream();
-		const page = new Response("page");
-		const next = vi.fn<() => Promise<Response>>(async () => page);
-		const middleware = sgtmMiddleware({ upstream: binding, gtmId, secret, prefix });
-		const context: SgtmAstroContext = { request: new Request("https://site.example/blog") };
+	it("answers the loader and passes everything else on", async () => {
+		const middleware = sgtmMiddleware(options);
+		const loader = await middleware(
+			{ request: new Request(`${origin}${sgtmLoaderPath(options)}`) },
+			next,
+		);
+		const page = await middleware({ request: new Request(`${origin}/blog`) }, next);
 
-		expect(await middleware(context, next)).toBe(page);
-		expect(next).toHaveBeenCalledOnce();
-		expect(calls).toHaveLength(0);
+		expect(await loader.text()).toContain("var a=1;");
+		expect(await page.text()).toBe("site");
 	});
 
-	it("serves prefix requests itself and reads the client IP from cf-connecting-ip", async () => {
-		const { binding, calls } = upstream();
-		const next = vi.fn<() => Promise<Response>>(async () => new Response("page"));
-		const middleware = sgtmMiddleware({ upstream: binding, gtmId, secret, prefix });
-		const context: SgtmAstroContext = {
-			request: new Request("https://site.example/k7/plain", {
-				headers: { "cf-connecting-ip": "198.51.100.7" },
-			}),
-		};
+	it("resolves lazy options once, on the first request", async () => {
+		const resolve = vi.fn<() => SgtmOptions>(() => options);
+		const middleware = sgtmMiddleware(resolve);
+		expect(resolve).not.toHaveBeenCalled();
 
-		const response = await middleware(context, next);
+		await middleware({ request: new Request(`${origin}/`) }, next);
+		await middleware({ request: new Request(`${origin}/`) }, next);
 
-		expect(response.status).toBe(202);
-		expect(next).not.toHaveBeenCalled();
-		expect(calls[0]!.headers.get("x-forwarded-for")).toBe("198.51.100.7");
-		expect(calls[0]!.headers.get("x-forwarded-host")).toBe("site.example");
+		expect(resolve).toHaveBeenCalledTimes(1);
 	});
 
-	it("resolves its options from the Worker env", async () => {
-		const { binding, calls } = upstream();
-		const next = vi.fn<() => Promise<Response>>(async () => new Response("page"));
-		const middleware = sgtmMiddleware((env) => ({
-			upstream: binding,
-			gtmId,
-			secret: (env as { SGTM_SECRET: string }).SGTM_SECRET,
-			prefix,
-		}));
-		const context: SgtmAstroContext = {
-			request: new Request("https://site.example/k7/plain"),
-			locals: { runtime: { env: { SGTM_SECRET: secret } } },
-		};
+	it("turns itself off and logs why when options are incomplete", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const middleware = sgtmMiddleware({ upstream: options.upstream });
 
-		expect((await middleware(context, next)).status).toBe(202);
-		expect(calls).toHaveLength(1);
-	});
+		const response = await middleware({ request: new Request(`${origin}/k7/anything`) }, next);
 
-	it("serves the loader with the shim through the middleware", async () => {
-		const container = 'var data={"21":"www.googletagmanager.com"};';
-		const binding = {
-			async fetch(): Promise<Response> {
-				return new Response(container, { headers: { "content-type": "application/javascript" } });
-			},
-		};
-		const next = vi.fn<() => Promise<Response>>(async () => new Response("page"));
-		const middleware = sgtmMiddleware({ upstream: binding, gtmId, secret, prefix });
-		const loaderPath = await sgtmLoaderPath({ secret, prefix });
-		const context: SgtmAstroContext = {
-			request: new Request(`https://site.example${loaderPath}`),
-		};
-
-		const response = await middleware(context, next);
-
-		expect(response.status).toBe(200);
-		expect(next).not.toHaveBeenCalled();
-		const body = await response.text();
-		expect(body.startsWith("(function (window) {")).toBe(true);
-		expect(body).toContain('"21":"site.example/k7"');
+		expect(await response.text()).toBe("site");
+		expect(log.mock.calls.flat().join(" ")).toContain("gtmId");
+		log.mockRestore();
 	});
 });

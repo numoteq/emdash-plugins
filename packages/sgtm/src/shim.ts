@@ -1,32 +1,24 @@
 import type { DerivedPaths } from "./codec.js";
 
 /**
- * The shim that is prepended to `gtm.js`. It runs before any container code, needs no dependencies
- * and rewrites only requests that already go to the sGTM prefix.
+ * The shim prepended to `gtm.js`. It encodes every same-origin request under the prefix, through
+ * the only channels gtm.js and gtag.js send with: `fetch`, `sendBeacon` and the `src` of script
+ * and image elements. Iframes stay plain on purpose: the service worker iframe then gets a 404
+ * and gtag sends from the page instead.
  *
- * The keystream helpers below are byte-for-byte copies of the ones in `codec.ts`; `tests/shim.test.ts`
- * round-trips both implementations against each other.
- *
- * {@link renderSgtmShim} wraps this source in an IIFE with `window` as its only free identifier, so
- * tests can run it against a fake window.
+ * The keystream helpers are copies of the ones in `codec.ts`; the tests round-trip both.
+ * `window` is the only free identifier, so tests can run the shim against a fake window.
  */
-export function sgtmShimSource(paths: DerivedPaths): string {
+export function shimSource(paths: DerivedPaths): string {
 	return `"use strict";
-	if (window.__numoteqSgtm) {
-		return;
-	}
-	window.__numoteqSgtm = true;
+	if (window.__sgtmShim) return;
+	window.__sgtmShim = true;
 
-	var PREFIX = ${JSON.stringify(paths.prefix)};
+	var PREFIX = ${JSON.stringify(`${paths.prefix}/`)};
 	var LOADER = ${JSON.stringify(paths.loaderPath)};
-	var ENCODED = ${JSON.stringify(paths.encodedPrefix)};
+	var ENCODED = ${JSON.stringify(`${paths.encodedPrefix}/`)};
 	var SEED = ${String(paths.seed)};
-
 	var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-	var VALUES = {};
-	for (var i = 0; i < ALPHABET.length; i += 1) {
-		VALUES[ALPHABET.charAt(i)] = i;
-	}
 
 	function base64url(bytes) {
 		var output = "";
@@ -50,22 +42,15 @@ export function sgtmShimSource(paths: DerivedPaths): string {
 		return output;
 	}
 
-	function mulberry32(seed) {
-		var state = seed >>> 0;
-		return function () {
-			state = (state + 0x6d2b79f5) >>> 0;
-			var value = state;
-			value = Math.imul(value ^ (value >>> 15), value | 1);
-			value = (value + Math.imul(value ^ (value >>> 7), value | 61)) ^ value;
-			return (value ^ (value >>> 14)) >>> 0;
-		};
-	}
-
 	function keystream(data, seed) {
-		var next = mulberry32(seed);
+		var state = seed >>> 0;
 		var output = new Uint8Array(data.length);
 		for (var index = 0; index < data.length; index += 4) {
-			var word = next();
+			state = (state + 0x6d2b79f5) >>> 0;
+			var word = state;
+			word = Math.imul(word ^ (word >>> 15), word | 1);
+			word = (word + Math.imul(word ^ (word >>> 7), word | 61)) ^ word;
+			word = (word ^ (word >>> 14)) >>> 0;
 			for (var offset = 0; offset < 4 && index + offset < data.length; offset += 1) {
 				output[index + offset] = data[index + offset] ^ ((word >>> (8 * offset)) & 255);
 			}
@@ -73,54 +58,26 @@ export function sgtmShimSource(paths: DerivedPaths): string {
 		return output;
 	}
 
-	function encode(value) {
-		// The container assigns script URLs as TrustedScriptURL objects where the
-		// browser supports Trusted Types; those stringify to the plain URL.
-		if (
-			(typeof window.TrustedScriptURL === "function" && value instanceof window.TrustedScriptURL) ||
-			(typeof window.URL === "function" && value instanceof window.URL)
-		) {
-			value = String(value);
-		}
-		if (typeof value !== "string" || value === "") {
-			return null;
-		}
-		var url;
-		try {
-			url = new window.URL(value, window.location.href);
-		} catch (error) {
-			void error;
-			return null;
-		}
-		if (url.origin !== window.location.origin) {
-			return null;
-		}
-		if (url.pathname.indexOf(PREFIX + "/") !== 0) {
-			return null;
-		}
-		if (url.pathname === LOADER) {
-			return null;
-		}
-		if (url.pathname === ENCODED || url.pathname.indexOf(ENCODED + "/") === 0) {
-			return null;
-		}
-
-		var salt = window.crypto.getRandomValues(new Uint8Array(4));
-		var saltWord = ((salt[0] << 24) | (salt[1] << 16) | (salt[2] << 8) | salt[3]) >>> 0;
-		var plain = new window.TextEncoder().encode(url.pathname + url.search);
-		var masked = keystream(plain, (saltWord ^ SEED) >>> 0);
-		var token = new Uint8Array(4 + masked.length);
-		token.set(salt, 0);
-		token.set(masked, 4);
-		return url.origin + ENCODED + "/" + base64url(token);
-	}
-
 	function rewrite(value) {
 		try {
-			var encoded = encode(value);
-			return encoded === null ? value : encoded;
+			// Script URLs arrive as TrustedScriptURL where Trusted Types exist; they stringify to the URL.
+			var url = new window.URL(String(value), window.location.href);
+			if (
+				url.origin !== window.location.origin ||
+				url.pathname.indexOf(PREFIX) !== 0 ||
+				url.pathname === LOADER ||
+				url.pathname.indexOf(ENCODED) === 0
+			) {
+				return value;
+			}
+			var salt = window.crypto.getRandomValues(new Uint8Array(4));
+			var plain = new window.TextEncoder().encode(url.pathname + url.search);
+			var masked = keystream(plain, (((salt[0] << 24) | (salt[1] << 16) | (salt[2] << 8) | salt[3]) ^ SEED) >>> 0);
+			var token = new Uint8Array(4 + masked.length);
+			token.set(salt, 0);
+			token.set(masked, 4);
+			return url.origin + ENCODED + base64url(token);
 		} catch (error) {
-			void error;
 			return value;
 		}
 	}
@@ -128,86 +85,44 @@ export function sgtmShimSource(paths: DerivedPaths): string {
 	var nativeFetch = window.fetch;
 	if (typeof nativeFetch === "function") {
 		window.fetch = function (input, init) {
-			try {
-				if (typeof input === "string") {
-					input = rewrite(input);
-				} else if (typeof window.URL === "function" && input instanceof window.URL) {
-					input = rewrite(input.href);
-				} else if (typeof window.Request === "function" && input instanceof window.Request) {
-					var encodedRequest = encode(input.url);
-					if (encodedRequest !== null) {
-						// A Request as init copies method, body, headers, credentials and keepalive.
-						input = new window.Request(encodedRequest, input);
-					}
-				}
-			} catch (error) {
-				void error;
-			}
-			return nativeFetch.call(this, input, init);
+			var target = typeof input === "string" || input instanceof window.URL ? rewrite(input) : input;
+			return nativeFetch.call(this, target, init);
 		};
 	}
 
-	var browserNavigator = window.navigator;
-	if (browserNavigator && typeof browserNavigator.sendBeacon === "function") {
-		var nativeSendBeacon = browserNavigator.sendBeacon;
-		browserNavigator.sendBeacon = function (url, data) {
-			return nativeSendBeacon.call(browserNavigator, rewrite(url), data);
+	var navigator = window.navigator;
+	if (navigator && typeof navigator.sendBeacon === "function") {
+		var nativeSendBeacon = navigator.sendBeacon;
+		navigator.sendBeacon = function (url, data) {
+			return nativeSendBeacon.call(navigator, rewrite(url), data);
 		};
 	}
 
-	if (typeof window.XMLHttpRequest === "function") {
-		var nativeOpen = window.XMLHttpRequest.prototype.open;
-		window.XMLHttpRequest.prototype.open = function (method, url) {
-			var args = Array.prototype.slice.call(arguments);
-			args[1] = rewrite(url);
-			return nativeOpen.apply(this, args);
-		};
-	}
-
-	function hookSrc(prototype) {
-		if (!prototype) {
-			return;
-		}
-		var descriptor = Object.getOwnPropertyDescriptor(prototype, "src");
-		if (!descriptor || typeof descriptor.set !== "function" || !descriptor.get) {
-			return;
-		}
+	function hookSrc(element) {
+		var prototype = element && element.prototype;
+		var descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, "src");
+		if (!descriptor || !descriptor.get || !descriptor.set) return;
 		Object.defineProperty(prototype, "src", {
 			configurable: true,
 			enumerable: descriptor.enumerable,
 			get: descriptor.get,
 			set: function (value) {
 				var rewritten = rewrite(value);
-				if (rewritten === value) {
-					return descriptor.set.call(this, value);
-				}
 				try {
-					return descriptor.set.call(this, rewritten);
+					descriptor.set.call(this, rewritten);
 				} catch (error) {
-					// A page that enforces Trusted Types rejects the plain string.
-					void error;
-					return descriptor.set.call(this, value);
+					// A Trusted Types policy rejects the plain string; fall back to the original value.
+					descriptor.set.call(this, value);
 				}
 			},
 		});
 	}
 
-	hookSrc(window.HTMLScriptElement && window.HTMLScriptElement.prototype);
-	hookSrc(window.HTMLImageElement && window.HTMLImageElement.prototype);
-	hookSrc(window.HTMLIFrameElement && window.HTMLIFrameElement.prototype);
-
-	if (typeof window.Element === "function") {
-		var nativeSetAttribute = window.Element.prototype.setAttribute;
-		window.Element.prototype.setAttribute = function (name, value) {
-			if (typeof name === "string" && name.toLowerCase() === "src") {
-				return nativeSetAttribute.call(this, name, rewrite(value));
-			}
-			return nativeSetAttribute.call(this, name, value);
-		};
-	}`;
+	hookSrc(window.HTMLScriptElement);
+	hookSrc(window.HTMLImageElement);`;
 }
 
-/** The shim as served: an ES2017 IIFE that guards itself with a window flag. */
-export function renderSgtmShim(paths: DerivedPaths): string {
-	return `(function (window) {\n${sgtmShimSource(paths)}\n})(window);\n`;
+/** The shim as served: an IIFE that guards itself with a window flag. */
+export function renderShim(paths: DerivedPaths): string {
+	return `(function (window) {\n${shimSource(paths)}\n})(window);\n`;
 }

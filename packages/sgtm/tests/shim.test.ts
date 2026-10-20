@@ -1,22 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
-import { decodeTarget, derivePaths, type DerivedPaths } from "../src/codec.js";
-import { renderSgtmShim, sgtmShimSource } from "../src/shim.js";
+import { decodeToken, derivePaths } from "../src/codec.js";
+import { renderShim, shimSource } from "../src/shim.js";
 
-const paths = await derivePaths({ secret: "s3cret-per-site", prefix: "/k7" });
+const paths = derivePaths("GTM-NTQ37T97", "/k7", "");
+const origin = "https://site.example";
 
-interface Harness {
-	window: Record<string, unknown>;
-	fetchCalls: unknown[];
-	beacons: Array<[unknown, unknown]>;
-	xhrCalls: Array<[string, string]>;
-	scriptSrc: unknown[];
-	imageSrc: string[];
-	iframeSrc: string[];
-	attributes: Array<[string, string]>;
-}
-
-/** Stand-in for the browser's TrustedScriptURL: an opaque object that stringifies to the URL. */
+/** Stand-in for TrustedScriptURL: an opaque object that stringifies to the URL. */
 class FakeTrustedScriptURL {
 	constructor(private readonly url: string) {}
 	toString(): string {
@@ -24,282 +14,121 @@ class FakeTrustedScriptURL {
 	}
 }
 
-/**
- * Runs the shim against a minimal fake window; `window` is its only free identifier. With
- * `enforceTrustedTypes`, script `src` rejects plain strings like a page with Trusted Types CSP.
- */
-function install(target: DerivedPaths, times = 1, enforceTrustedTypes = false): Harness {
-	const fetchCalls: unknown[] = [];
-	const beacons: Array<[unknown, unknown]> = [];
-	const xhrCalls: Array<[string, string]> = [];
-	const scriptSrc: unknown[] = [];
-	const imageSrc: string[] = [];
-	const iframeSrc: string[] = [];
-	const attributes: Array<[string, string]> = [];
+/** Runs the shim against a minimal fake window and records what reaches the native APIs. */
+function install(options: { times?: number; trustedTypes?: boolean } = {}) {
+	const sent: unknown[] = [];
 
-	class FakeElement {
-		setAttribute(name: string, value: string): void {
-			attributes.push([name, value]);
-		}
-	}
-
-	class FakeScript extends FakeElement {
-		private current = "";
-		get src(): string {
-			return this.current;
-		}
-		set src(value: string) {
-			if (enforceTrustedTypes && typeof value === "string") {
-				throw new TypeError("This document requires 'TrustedScriptURL' assignment.");
+	const element = (record: boolean, enforce = false) =>
+		class {
+			#src: unknown = "";
+			get src(): unknown {
+				return this.#src;
 			}
-			this.current = String(value);
-			scriptSrc.push(value);
-		}
-	}
+			set src(value: unknown) {
+				if (enforce && typeof value === "string") throw new TypeError("TrustedScriptURL required");
+				this.#src = value;
+				if (record) sent.push(value);
+			}
+		};
 
-	class FakeImage extends FakeElement {
-		private current = "";
-		get src(): string {
-			return this.current;
-		}
-		set src(value: string) {
-			this.current = value;
-			imageSrc.push(value);
-		}
-	}
-
-	class FakeIframe extends FakeElement {
-		private current = "";
-		get src(): string {
-			return this.current;
-		}
-		set src(value: string) {
-			this.current = value;
-			iframeSrc.push(value);
-		}
-	}
-
-	class FakeXhr {
-		open(method: string, url: string): void {
-			xhrCalls.push([method, url]);
-		}
-	}
-
-	const fakeWindow: Record<string, unknown> = {
-		location: { href: "https://site.example/post/", origin: "https://site.example" },
+	const window: Record<string, unknown> = {
+		location: { href: `${origin}/blog/`, origin },
 		crypto: globalThis.crypto,
 		URL: globalThis.URL,
-		Request: globalThis.Request,
 		TextEncoder: globalThis.TextEncoder,
 		fetch: (input: unknown) => {
-			fetchCalls.push(input);
+			sent.push(input);
 			return Promise.resolve(new Response("ok"));
 		},
 		navigator: {
-			sendBeacon: (url: unknown, data?: unknown) => {
-				beacons.push([url, data]);
+			sendBeacon: (url: unknown) => {
+				sent.push(url);
 				return true;
 			},
 		},
-		XMLHttpRequest: FakeXhr,
-		Element: FakeElement,
-		HTMLScriptElement: FakeScript,
-		TrustedScriptURL: FakeTrustedScriptURL,
-		HTMLImageElement: FakeImage,
-		HTMLIFrameElement: FakeIframe,
+		HTMLScriptElement: element(true, options.trustedTypes),
+		HTMLImageElement: element(true),
+		HTMLIFrameElement: element(true),
 	};
 
-	const run = new Function("window", sgtmShimSource(target)) as (window: unknown) => void;
-	for (let index = 0; index < times; index += 1) run(fakeWindow);
+	const run = new Function("window", shimSource(paths)) as (window: unknown) => void;
+	for (let index = 0; index < (options.times ?? 1); index += 1) run(window);
 
-	return {
-		window: fakeWindow,
-		fetchCalls,
-		beacons,
-		xhrCalls,
-		scriptSrc,
-		imageSrc,
-		iframeSrc,
-		attributes,
-	};
+	const create = (name: string) => new (window[name] as new () => { src: unknown })();
+	return { window, sent, create };
 }
 
-function fetcher(harness: Harness): (input: unknown) => Promise<Response> {
-	return harness.window["fetch"] as (input: unknown) => Promise<Response>;
+/** The `pathname + search` an encoded URL stands for, or `null` when it was not encoded. */
+function decoded(value: unknown): string | null {
+	const url = new URL(String(value));
+	if (url.origin !== origin || !url.pathname.startsWith(`${paths.encodedPrefix}/`)) return null;
+	return decodeToken(url.pathname.slice(paths.encodedPrefix.length + 1), paths);
 }
 
-/** The `pathname + search` a rewritten URL stands for, or `null` when it was not rewritten. */
-function plaintext(value: unknown): string | null {
-	if (typeof value !== "string" || !value.startsWith("https://site.example")) return null;
-	const url = new URL(value);
-	if (!url.pathname.startsWith(`${paths.encodedPrefix}/`)) return null;
-	return decodeTarget(url.pathname.slice(paths.encodedPrefix.length + 1), paths.seed, paths.prefix);
-}
+const hit = "/k7/g/collect?v=2&tid=G-WSNXXNBYV7&en=page_view";
 
-describe("sgtmLoaderShim", () => {
-	it("encodes a same-origin request under the prefix and the decoder restores it", async () => {
-		const harness = install(paths);
-		await fetcher(harness)("/k7/gtm.js?v=2&tid=G-X");
+describe("shim", () => {
+	it("encodes fetch, sendBeacon, script and image requests under the prefix", async () => {
+		const { window, sent, create } = install();
 
-		expect(harness.fetchCalls).toHaveLength(1);
-		const encoded = harness.fetchCalls[0];
-		expect(typeof encoded).toBe("string");
-		expect(String(encoded).startsWith(`https://site.example${paths.encodedPrefix}/`)).toBe(true);
-		expect(plaintext(String(encoded))).toBe("/k7/gtm.js?v=2&tid=G-X");
+		await (window["fetch"] as (input: unknown) => Promise<Response>)(`${origin}${hit}`);
+		await (window["fetch"] as (input: unknown) => Promise<Response>)(new URL(hit, origin));
+		(window["navigator"] as { sendBeacon: (url: string) => boolean }).sendBeacon(hit);
+		create("HTMLScriptElement").src = "/k7/gtag/js?id=G-WSNXXNBYV7";
+		create("HTMLImageElement").src = `${origin}${hit}`;
+
+		expect(sent.map(decoded)).toEqual([hit, hit, hit, "/k7/gtag/js?id=G-WSNXXNBYV7", hit]);
+		for (const value of sent) {
+			expect(String(value)).not.toContain("collect");
+			expect(String(value)).not.toContain("G-");
+		}
 	});
 
-	it("resolves relative requests against the document", async () => {
-		const harness = install(paths);
-		await fetcher(harness)("../k7/collect");
-
-		expect(harness.fetchCalls).toHaveLength(1);
-		expect(String(harness.fetchCalls[0]).startsWith("https://site.example/")).toBe(true);
-		expect(plaintext(String(harness.fetchCalls[0]))).toBe("/k7/collect");
+	it("gives every request a different token", () => {
+		const { sent, create } = install();
+		create("HTMLImageElement").src = hit;
+		create("HTMLImageElement").src = hit;
+		expect(sent[0]).not.toBe(sent[1]);
 	});
 
-	it("leaves other origins, other paths, the loader and encoded URLs alone", async () => {
-		const harness = install(paths);
-		const fetch = fetcher(harness);
-
-		const untouched: unknown[] = [
-			"https://www.googletagmanager.com/gtm.js?id=GTM-X",
-			"https://other.example/k7/x",
-			"//other.example/k7/x",
-			"https://site.example/api/thing",
+	it("leaves other origins, other paths, the loader and encoded URLs alone", () => {
+		const { sent, create } = install();
+		const untouched = [
+			"https://www.google-analytics.com/g/collect?v=2",
+			"/api/contact",
+			"/k7",
 			paths.loaderPath,
-			`${paths.encodedPrefix}/AAAA`,
+			`${paths.encodedPrefix}/abc`,
 		];
-		await Promise.all(untouched.map(async (value) => fetch(value)));
-
-		expect(harness.fetchCalls).toEqual(untouched);
+		for (const url of untouched) create("HTMLImageElement").src = url;
+		expect(sent).toEqual(untouched);
 	});
 
-	it("keeps method, headers, body and credentials of a Request", async () => {
-		const harness = install(paths);
-		const request = new Request("https://site.example/k7/collect", {
-			method: "POST",
-			body: "a=1",
-			headers: { "x-a": "b" },
-			credentials: "include",
-			referrerPolicy: "no-referrer",
-		});
-
-		await fetcher(harness)(request);
-
-		const forwarded = harness.fetchCalls[0] as Request;
-		expect(forwarded).toBeInstanceOf(Request);
-		expect(forwarded.method).toBe("POST");
-		expect(forwarded.headers.get("x-a")).toBe("b");
-		expect(forwarded.credentials).toBe("include");
-		expect(forwarded.referrerPolicy).toBe("no-referrer");
-		expect(plaintext(forwarded.url)).toBe("/k7/collect");
-		expect(await forwarded.text()).toBe("a=1");
+	it("keeps iframes plain, so the service worker iframe is refused", () => {
+		const { sent, create } = install();
+		const iframe = "/k7/_/service_worker/6a60/sw_iframe.html?origin=https%3A%2F%2Fsite.example";
+		create("HTMLIFrameElement").src = iframe;
+		expect(sent).toEqual([iframe]);
 	});
 
-	it("keeps keepalive and leaves a Request outside the prefix untouched", async () => {
-		const harness = install(paths);
-		const keepalive = new Request("https://site.example/k7/ping", { keepalive: true });
-		const foreign = new Request("https://other.example/k7/ping");
+	it("encodes TrustedScriptURL values and falls back where Trusted Types reject strings", () => {
+		const plain = install();
+		plain.create("HTMLScriptElement").src = new FakeTrustedScriptURL(`${origin}/k7/gtag/js?id=G-X`);
+		expect(decoded(plain.sent[0])).toBe("/k7/gtag/js?id=G-X");
 
-		await fetcher(harness)(keepalive);
-		await fetcher(harness)(foreign);
-
-		const forwarded = harness.fetchCalls[0] as Request;
-		expect(forwarded.keepalive).toBe(true);
-		expect(forwarded.method).toBe("GET");
-		expect(plaintext(forwarded.url)).toBe("/k7/ping");
-		expect(harness.fetchCalls[1]).toBe(foreign);
+		const enforced = install({ trustedTypes: true });
+		const original = new FakeTrustedScriptURL(`${origin}/k7/gtag/js?id=G-X`);
+		enforced.create("HTMLScriptElement").src = original;
+		expect(enforced.sent).toEqual([original]);
 	});
 
-	it("accepts a URL object", async () => {
-		const harness = install(paths);
-		await fetcher(harness)(new URL("https://site.example/k7/collect"));
-
-		expect(plaintext(String(harness.fetchCalls[0]))).toBe("/k7/collect");
+	it("hooks only once when loaded twice", () => {
+		const { sent, create } = install({ times: 2 });
+		create("HTMLImageElement").src = hit;
+		expect(decoded(sent[0])).toBe(hit);
 	});
 
-	it("rewrites sendBeacon, XMLHttpRequest.open, src setters and setAttribute", () => {
-		const harness = install(paths);
-		const navigator = harness.window["navigator"] as {
-			sendBeacon: (url: string, body: string) => boolean;
-		};
-		const Xhr = harness.window["XMLHttpRequest"] as new () => {
-			open(method: string, url: string): void;
-		};
-		const Script = harness.window["HTMLScriptElement"] as new () => { src: string };
-		const Image = harness.window["HTMLImageElement"] as new () => { src: string };
-		const Iframe = harness.window["HTMLIFrameElement"] as new () => { src: string };
-		const Element = harness.window["Element"] as new () => {
-			setAttribute(name: string, value: string): void;
-		};
-
-		navigator.sendBeacon("/k7/beacon", "payload");
-		new Xhr().open("POST", "/k7/xhr");
-		const script = new Script();
-		script.src = "/k7/collect.js";
-		script.src = "https://cdn.example/other.js";
-		const image = new Image();
-		image.src = "/k7/pixel.gif";
-		const iframe = new Iframe();
-		iframe.src = "/k7/ns.html?id=GTM-X";
-		const element = new Element();
-		element.setAttribute("src", "/k7/legacy.js");
-		element.setAttribute("href", "/k7/not-a-src.js");
-
-		expect(harness.beacons).toHaveLength(1);
-		expect(harness.beacons[0]![1]).toBe("payload");
-		expect(plaintext(String(harness.beacons[0]![0]))).toBe("/k7/beacon");
-		expect(harness.xhrCalls).toHaveLength(1);
-		expect(harness.xhrCalls[0]![0]).toBe("POST");
-		expect(plaintext(harness.xhrCalls[0]![1])).toBe("/k7/xhr");
-		expect(plaintext(harness.scriptSrc[0])).toBe("/k7/collect.js");
-		expect(harness.scriptSrc[1]).toBe("https://cdn.example/other.js");
-		expect(plaintext(harness.imageSrc[0])).toBe("/k7/pixel.gif");
-		expect(plaintext(harness.iframeSrc[0])).toBe("/k7/ns.html?id=GTM-X");
-		expect(plaintext(harness.attributes[0]![1])).toBe("/k7/legacy.js");
-		expect(harness.attributes[0]![0]).toBe("src");
-		expect(harness.attributes[1]).toEqual(["href", "/k7/not-a-src.js"]);
-	});
-
-	it("encodes a TrustedScriptURL assigned to a script src", () => {
-		const harness = install(paths);
-		const Script = harness.window["HTMLScriptElement"] as new () => { src: unknown };
-
-		const script = new Script();
-		script.src = new FakeTrustedScriptURL("/k7/gtm.js?id=GTM-X&gtg_health=1");
-		script.src = new FakeTrustedScriptURL("https://cdn.example/other.js");
-
-		expect(plaintext(harness.scriptSrc[0])).toBe("/k7/gtm.js?id=GTM-X&gtg_health=1");
-		expect(harness.scriptSrc[1]).toBeInstanceOf(FakeTrustedScriptURL);
-	});
-
-	it("keeps the TrustedScriptURL when the page enforces Trusted Types", () => {
-		const harness = install(paths, 1, true);
-		const Script = harness.window["HTMLScriptElement"] as new () => { src: unknown };
-		const trusted = new FakeTrustedScriptURL("/k7/gtm.js?id=GTM-X");
-
-		const script = new Script();
-		script.src = trusted;
-
-		expect(harness.scriptSrc).toEqual([trusted]);
-	});
-
-	it("installs itself once", async () => {
-		const harness = install(paths, 2);
-
-		expect(harness.window["__numoteqSgtm"]).toBe(true);
-		await fetcher(harness)("/k7/once");
-		expect(harness.fetchCalls).toHaveLength(1);
-		expect(plaintext(String(harness.fetchCalls[0]))).toBe("/k7/once");
-	});
-
-	it("ships as a self-guarding IIFE with the derived paths baked in", async () => {
-		const rendered = renderSgtmShim(paths);
-		expect(rendered.startsWith("(function (window) {\n")).toBe(true);
-		expect(rendered.trimEnd().endsWith("})(window);")).toBe(true);
-		expect(rendered).toContain(JSON.stringify(paths.prefix));
-		expect(rendered).toContain(JSON.stringify(paths.loaderPath));
-		expect(rendered).toContain(JSON.stringify(paths.encodedPrefix));
-		expect(rendered).toContain(String(paths.seed));
+	it("renders as a self-contained IIFE", () => {
+		expect(renderShim(paths)).toMatch(/^\(function \(window\) \{\n[\s\S]*\n\}\)\(window\);\n$/);
 	});
 });
