@@ -1,60 +1,39 @@
-import { Effect, Layer, ManagedRuntime, Option, Result } from "effect";
+import { Effect, Layer, Logger, ManagedRuntime, Option, Result } from "effect";
 
-import { resolveConfig, type SgtmOptions } from "./config.js";
-import { handle, LoaderCache, Upstream } from "./handler.js";
+import { resolveOptions, SgtmConfig, type SgtmOptions } from "./config.js";
+import { handle, handleDisabled, LoaderCache, Upstream } from "./handler.js";
 
 export type { SgtmOptions, SgtmUpstream } from "./config.js";
+export { sgtmLoaderPath } from "./paths.js";
 
-/** The subset of Astro's `APIContext` the middleware needs. */
-export interface SgtmAstroContext {
-	readonly request: Request;
-}
+/** Answers the proxy's own requests; `null` means the request belongs to the site. */
+export type SgtmHandler = (request: Request) => Promise<Response | null>;
 
-/** Compatible with Astro's `defineMiddleware` and EmDash's `middleware.outer`. */
-export type SgtmMiddleware = (
-	context: SgtmAstroContext,
-	next: () => Promise<Response>,
-) => Promise<Response>;
+const logger = Logger.layer([Logger.consoleJson]);
 
 /**
- * The `<script src>` that loads the container, or `undefined` when the options are incomplete, so
- * the page never points at a loader the middleware does not answer.
+ * Creates the proxy for one isolate. Incomplete options log why once and turn it off: the loader
+ * then answers an empty script, so one build serves production, previews and local development.
  */
-export function sgtmLoaderPath(options: SgtmOptions): string | undefined {
-	return Result.getOrUndefined(resolveConfig(options))?.paths.loaderPath;
-}
-
-/**
- * Astro middleware that answers everything under the prefix and passes the rest to `next()`.
- * `options` may be a function: it runs on the first request, where Worker bindings are available,
- * and the result is kept for the isolate. Incomplete options log why once and turn the proxy off.
- */
-export function sgtmMiddleware(options: SgtmOptions | (() => SgtmOptions)): SgtmMiddleware {
-	let proxy:
-		| ((request: Request, clientIp: string | undefined) => Promise<Response | null>)
-		| null
-		| undefined;
-
-	const start = () => {
-		const config = resolveConfig(typeof options === "function" ? options() : options);
-		if (Result.isFailure(config)) {
-			Effect.runSync(Effect.logWarning(`sgtm disabled: ${config.failure}`));
-			return null;
-		}
-		const runtime = ManagedRuntime.make(
-			Layer.merge(Upstream.layer(config.success.upstream), LoaderCache.workers),
+export function createSgtmHandler(options: SgtmOptions): SgtmHandler {
+	const resolved = resolveOptions(options);
+	if (Result.isFailure(resolved)) {
+		Effect.runSync(
+			Effect.logWarning(`sgtm disabled: ${resolved.failure}`).pipe(Effect.provide(logger)),
 		);
-		return (request: Request, clientIp: string | undefined) =>
-			runtime.runPromise(
-				handle(config.success, request, clientIp).pipe(Effect.map(Option.getOrNull)),
-			);
-	};
+		return (request) => Promise.resolve(handleDisabled(request));
+	}
 
-	return async (context, next) => {
-		if (proxy === undefined) proxy = start();
-		const response =
-			proxy &&
-			(await proxy(context.request, context.request.headers.get("cf-connecting-ip") ?? undefined));
-		return response ?? next();
-	};
+	const runtime = ManagedRuntime.make(
+		Layer.mergeAll(
+			SgtmConfig.layer(resolved.success.gtmId),
+			Upstream.layer(resolved.success.upstream),
+			LoaderCache.workers,
+			logger,
+		),
+	);
+	return (request) =>
+		runtime.runPromise(handle(request).pipe(Effect.map(Option.getOrNull)), {
+			signal: request.signal,
+		});
 }

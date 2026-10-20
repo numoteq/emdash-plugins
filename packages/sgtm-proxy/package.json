@@ -1,18 +1,17 @@
 {
-	"name": "@numoteq/emdash-plugin-sgtm",
-	"version": "0.1.1",
-	"description": "First-party, ad-blocker-resistant proxy from an Astro site on Cloudflare Workers to self-hosted server-side Google Tag Manager",
+	"name": "@numoteq/sgtm-proxy",
+	"version": "1.0.0",
+	"description": "First-party, ad-blocker-resistant proxy from a Cloudflare Worker to self-hosted server-side Google Tag Manager",
 	"keywords": [
 		"astro",
 		"cloudflare-workers",
-		"emdash",
 		"google-tag-manager",
 		"server-side-tagging",
 		"sgtm"
 	],
-	"homepage": "https://github.com/numoteq/emdash-plugins/tree/main/packages/sgtm#readme",
+	"homepage": "https://github.com/numoteq/js-packages/tree/main/packages/sgtm-proxy#readme",
 	"bugs": {
-		"url": "https://github.com/numoteq/emdash-plugins/issues"
+		"url": "https://github.com/numoteq/js-packages/issues"
 	},
 	"license": "MIT",
 	"author": {
@@ -22,8 +21,8 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/numoteq/emdash-plugins.git",
-		"directory": "packages/sgtm"
+		"url": "git+https://github.com/numoteq/js-packages.git",
+		"directory": "packages/sgtm-proxy"
 	},
 	"files": [
 		"dist",
@@ -35,8 +34,16 @@
 	"main": "dist/index.mjs",
 	"exports": {
 		".": {
-			"import": "./dist/index.mjs",
-			"types": "./dist/index.d.mts"
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		},
+		"./client": {
+			"types": "./dist/client.d.mts",
+			"import": "./dist/client.mjs"
+		},
+		"./astro": {
+			"types": "./dist/astro.d.mts",
+			"import": "./dist/astro.mjs"
 		}
 	},
 	"publishConfig": {
@@ -49,6 +56,7 @@
 	},
 	"devDependencies": {
 		"@effect/vitest": "4.0.4",
+		"astro": "7.3.3",
 		"effect": "4.0.4",
 		"tsdown": "0.23.0",
 		"typescript": "6.0.3",
@@ -57,5 +65,10 @@
 	"peerDependencies": {
 		"astro": ">=5",
 		"effect": "^4.0.0"
+	},
+	"peerDependenciesMeta": {
+		"astro": {
+			"optional": true
+		}
 	}
 }

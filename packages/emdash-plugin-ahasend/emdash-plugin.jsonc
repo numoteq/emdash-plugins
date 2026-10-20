@@ -12,7 +12,7 @@
 	"name": "AhaSend",
 	"description": "Delivers EmDash transactional email through the AhaSend API.",
 	"keywords": ["email", "transactional", "ahasend"],
-	"repo": "https://github.com/numoteq/emdash-plugins",
+	"repo": "https://github.com/numoteq/js-packages",
 	"capabilities": ["network:request", "hooks.email-transport:register"],
 	"allowedHosts": ["api.ahasend.com"],
 	"storage": {},

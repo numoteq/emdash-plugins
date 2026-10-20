@@ -11,7 +11,7 @@ import {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const site = { origin: "https://site.example", host: "site.example", prefix: "/k7" };
+const site = { origin: "https://site.example", host: "site.example", prefix: "/_sgtm" };
 
 const rewrite = (text: string) => decoder.decode(rewriteGtmHosts(encoder.encode(text), site));
 
@@ -22,8 +22,8 @@ describe("rewriteGtmHosts", () => {
 		const output = rewrite(fixture);
 
 		expect(output).not.toContain("www.googletagmanager.com");
-		expect(output).toContain('"21":"site.example/k7"');
-		expect(output).toContain('a="https://site.example/k7/static/service_worker/"');
+		expect(output).toContain('"21":"site.example/_sgtm"');
+		expect(output).toContain('a="https://site.example/_sgtm/static/service_worker/"');
 	});
 
 	it("keeps the escaped hostname check and third-party endpoints", () => {
@@ -50,7 +50,7 @@ describe("filterCookies", () => {
 
 describe("upstreamHeaders", () => {
 	it("drops Cloudflare headers and foreign cookies and records the client", () => {
-		const request = new Request("https://site.example/k7/x", {
+		const request = new Request("https://site.example/_sgtm/x", {
 			headers: {
 				"cf-ray": "1",
 				"cf-connecting-ip": "203.0.113.9",

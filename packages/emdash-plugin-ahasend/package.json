@@ -8,9 +8,9 @@
 		"emdash",
 		"emdash-plugin"
 	],
-	"homepage": "https://github.com/numoteq/emdash-plugins/tree/main/packages/ahasend#readme",
+	"homepage": "https://github.com/numoteq/js-packages/tree/main/packages/emdash-plugin-ahasend#readme",
 	"bugs": {
-		"url": "https://github.com/numoteq/emdash-plugins/issues"
+		"url": "https://github.com/numoteq/js-packages/issues"
 	},
 	"license": "MIT",
 	"author": {
@@ -20,8 +20,8 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/numoteq/emdash-plugins.git",
-		"directory": "packages/ahasend"
+		"url": "git+https://github.com/numoteq/js-packages.git",
+		"directory": "packages/emdash-plugin-ahasend"
 	},
 	"files": [
 		"dist",

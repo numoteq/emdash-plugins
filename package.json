@@ -1,11 +1,11 @@
 {
-	"name": "@numoteq/emdash-plugins",
+	"name": "@numoteq/js-packages",
 	"version": "0.0.0",
 	"private": true,
-	"description": "Official EmDash plugins by NUMOTEQ",
-	"homepage": "https://github.com/numoteq/emdash-plugins#readme",
+	"description": "JavaScript packages by NUMOTEQ",
+	"homepage": "https://github.com/numoteq/js-packages#readme",
 	"bugs": {
-		"url": "https://github.com/numoteq/emdash-plugins/issues"
+		"url": "https://github.com/numoteq/js-packages/issues"
 	},
 	"license": "MIT",
 	"author": {
@@ -15,7 +15,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/numoteq/emdash-plugins.git"
+		"url": "git+https://github.com/numoteq/js-packages.git"
 	},
 	"type": "module",
 	"scripts": {

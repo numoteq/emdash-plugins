@@ -1,16 +1,21 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Option, Result } from "effect";
+import { Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import { encodeToken } from "../src/codec.js";
-import { resolveConfig, type SgtmConfig } from "../src/config.js";
-import { handle, LoaderCache, Upstream, UpstreamUnavailable } from "../src/handler.js";
+import { SgtmConfig } from "../src/config.js";
+import {
+	handle,
+	handleDisabled,
+	LoaderCache,
+	Upstream,
+	UpstreamUnavailable,
+} from "../src/handler.js";
+import { encodedPrefix, sgtmLoaderPath } from "../src/paths.js";
 
 const origin = "https://site.example";
-const config: SgtmConfig = Result.getOrThrow(
-	resolveConfig({ gtmId: "GTM-NTQ37T97", upstream: "https://sgtm.example" }),
-);
-const { paths } = config;
+const loaderPath = sgtmLoaderPath("site.example");
+const encodedPath = encodedPrefix("site.example");
 
 const CONTAINER =
 	'var h="https://www.googletagmanager.com/gtag/js";var b={"21":"www.googletagmanager.com"};';
@@ -53,18 +58,20 @@ const run = (
 	fake: ReturnType<typeof upstream>,
 	cache = memoryCache(),
 ): Effect.Effect<Option.Option<Response>> =>
-	handle(config, request, "203.0.113.9").pipe(Effect.provide(Layer.merge(fake.layer, cache.layer)));
+	handle(request).pipe(
+		Effect.provide(Layer.mergeAll(SgtmConfig.layer("GTM-NTQ37T97"), fake.layer, cache.layer)),
+	);
 
 const encoded = (plain: string) =>
-	`${origin}${paths.encodedPrefix}/${encodeToken(plain, crypto.getRandomValues(new Uint8Array(4)), paths.seed)}`;
+	`${origin}${encodedPath}${encodeToken(plain, crypto.getRandomValues(new Uint8Array(4)))}`;
 
 const status = (response: Option.Option<Response>) => Option.getOrThrow(response).status;
 
 describe("handle", () => {
-	it.effect("ignores requests outside the prefix", () =>
+	it.effect("ignores requests that belong to the site", () =>
 		Effect.gen(function* () {
 			const fake = upstream(() => script());
-			for (const path of ["/", "/blog", "/k", "/k7extra/x"]) {
+			for (const path of ["/", "/blog", "/_sgtmx", loaderPath.slice(0, -3), "/x.js"]) {
 				expect(yield* run(new Request(`${origin}${path}`), fake)).toEqual(Option.none());
 			}
 			expect(fake.calls).toHaveLength(0);
@@ -74,7 +81,7 @@ describe("handle", () => {
 	it.effect("refuses plain requests under the prefix without calling sGTM", () =>
 		Effect.gen(function* () {
 			const fake = upstream(() => script());
-			for (const path of ["/k7", "/k7/g/collect?v=2", "/k7/_/service_worker/6a60/sw_iframe.html"]) {
+			for (const path of ["/_sgtm", "/_sgtm/g/collect?v=2", "/_sgtm/_/service_worker/sw.js"]) {
 				expect(status(yield* run(new Request(`${origin}${path}`), fake))).toBe(404);
 			}
 			expect(fake.calls).toHaveLength(0);
@@ -85,29 +92,31 @@ describe("handle", () => {
 		it.effect("serves gtm.js with the shim in front and the hosts rewritten", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => script());
+				const request = new Request(`${origin}${loaderPath}?x=1`, {
+					headers: { "cf-connecting-ip": "203.0.113.9" },
+				});
 
-				const response = Option.getOrThrow(
-					yield* run(new Request(`${origin}${paths.loaderPath}?x=1`), fake),
-				);
+				const response = Option.getOrThrow(yield* run(request, fake));
 				const body = yield* Effect.promise(() => response.text());
 
-				expect(fake.calls.map((call) => call.path)).toEqual(["/k7/gtm.js?id=GTM-NTQ37T97"]);
+				expect(fake.calls.map((call) => call.path)).toEqual(["/_sgtm/gtm.js?id=GTM-NTQ37T97"]);
 				expect(new Headers(fake.calls[0]!.init.headers).get("x-forwarded-for")).toBe("203.0.113.9");
 				expect(body.startsWith("(function (window) {")).toBe(true);
-				expect(body).toContain('var h="https://site.example/k7/gtag/js"');
-				expect(body).toContain('"21":"site.example/k7"');
+				expect(body).toContain(JSON.stringify(encodedPath));
+				expect(body).toContain('var h="https://site.example/_sgtm/gtag/js"');
+				expect(body).toContain('"21":"site.example/_sgtm"');
 				expect(body).not.toContain("googletagmanager.com");
 				expect(response.headers.get("content-type")).toBe("application/javascript; charset=utf-8");
 			}),
 		);
 
-		it.effect("is cached, except for server-side previews", () =>
+		it.effect("is cached per path, except for server-side previews", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => script());
 				const cache = memoryCache();
-				const loader = `${origin}${paths.loaderPath}`;
+				const loader = `${origin}${loaderPath}`;
 
-				yield* run(new Request(loader), fake, cache);
+				yield* run(new Request(`${loader}?a=1`), fake, cache);
 				const cached = yield* run(new Request(loader), fake, cache);
 				yield* run(
 					new Request(loader, { headers: { "x-gtm-server-preview": "abc" } }),
@@ -125,7 +134,7 @@ describe("handle", () => {
 			Effect.gen(function* () {
 				const cache = memoryCache();
 				yield* run(
-					new Request(`${origin}${paths.loaderPath}`),
+					new Request(`${origin}${loaderPath}`),
 					upstream(() => script(CONTAINER, { "set-cookie": "FPID=1" })),
 					cache,
 				);
@@ -136,9 +145,7 @@ describe("handle", () => {
 		it.effect("retries twice, then answers 502", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => new Response("down", { status: 503 }));
-				const fiber = yield* Effect.forkChild(
-					run(new Request(`${origin}${paths.loaderPath}`), fake),
-				);
+				const fiber = yield* Effect.forkChild(run(new Request(`${origin}${loaderPath}`), fake));
 				yield* TestClock.adjust("1 second");
 				expect(status(yield* Fiber.join(fiber))).toBe(502);
 				expect(fake.calls).toHaveLength(3);
@@ -150,11 +157,18 @@ describe("handle", () => {
 				const fake = upstream(() =>
 					fake.calls.length === 1 ? new UpstreamUnavailable({ reason: "reset" }) : script(),
 				);
-				const fiber = yield* Effect.forkChild(
-					run(new Request(`${origin}${paths.loaderPath}`), fake),
-				);
+				const fiber = yield* Effect.forkChild(run(new Request(`${origin}${loaderPath}`), fake));
 				yield* TestClock.adjust("1 second");
 				expect(status(yield* Fiber.join(fiber))).toBe(200);
+			}),
+		);
+
+		it.effect("times out a body that never finishes", () =>
+			Effect.gen(function* () {
+				const fake = upstream(() => script(new ReadableStream() as unknown as string));
+				const fiber = yield* Effect.forkChild(run(new Request(`${origin}${loaderPath}`), fake));
+				yield* TestClock.adjust("1 minute");
+				expect(status(yield* Fiber.join(fiber))).toBe(502);
 			}),
 		);
 
@@ -162,9 +176,7 @@ describe("handle", () => {
 			Effect.gen(function* () {
 				const cache = memoryCache();
 				const fake = upstream(() => new Response("no client", { status: 400 }));
-				expect(status(yield* run(new Request(`${origin}${paths.loaderPath}`), fake, cache))).toBe(
-					400,
-				);
+				expect(status(yield* run(new Request(`${origin}${loaderPath}`), fake, cache))).toBe(400);
 				expect(fake.calls).toHaveLength(1);
 				expect(cache.entries.size).toBe(0);
 			}),
@@ -175,7 +187,7 @@ describe("handle", () => {
 		it.effect("forwards the decoded hit once, with method, body and filtered headers", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => new Response(null, { status: 204 }));
-				const request = new Request(encoded("/k7/g/collect?v=2&en=page_view"), {
+				const request = new Request(encoded("/g/collect?v=2&en=page_view"), {
 					method: "POST",
 					body: "en=scroll",
 					headers: { cookie: "_ga=1; session=secret" },
@@ -184,7 +196,7 @@ describe("handle", () => {
 				expect(status(yield* run(request, fake))).toBe(204);
 
 				const [call] = fake.calls;
-				expect(call!.path).toBe("/k7/g/collect?v=2&en=page_view");
+				expect(call!.path).toBe("/_sgtm/g/collect?v=2&en=page_view");
 				expect(call!.init.method).toBe("POST");
 				expect(new Headers(call!.init.headers).get("cookie")).toBe("_ga=1");
 				expect(yield* Effect.promise(() => new Response(call!.init.body).text())).toBe("en=scroll");
@@ -195,22 +207,22 @@ describe("handle", () => {
 			Effect.gen(function* () {
 				const fake = upstream(() => script());
 				const response = Option.getOrThrow(
-					yield* run(new Request(encoded("/k7/gtag/js?id=G-X")), fake),
+					yield* run(new Request(encoded("/gtag/js?id=G-X")), fake),
 				);
 				const body = yield* Effect.promise(() => response.text());
 				expect(body).toBe(
-					CONTAINER.replaceAll("https://www.googletagmanager.com", `${origin}/k7`).replaceAll(
+					CONTAINER.replaceAll("https://www.googletagmanager.com", `${origin}/_sgtm`).replaceAll(
 						"www.googletagmanager.com",
-						"site.example/k7",
+						"site.example/_sgtm",
 					),
 				);
 			}),
 		);
 
-		it.effect("answers 400 to a token this site did not issue", () =>
+		it.effect("answers 400 to a token the shim did not issue", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => script());
-				const response = yield* run(new Request(`${origin}${paths.encodedPrefix}/garbage`), fake);
+				const response = yield* run(new Request(`${origin}${encodedPath}garbage`), fake);
 				expect(status(response)).toBe(400);
 				expect(fake.calls).toHaveLength(0);
 			}),
@@ -219,11 +231,22 @@ describe("handle", () => {
 		it.effect("answers 502 without retrying when sGTM hangs", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => "hang");
-				const fiber = yield* Effect.forkChild(run(new Request(encoded("/k7/g/collect?v=2")), fake));
+				const fiber = yield* Effect.forkChild(run(new Request(encoded("/g/collect?v=2")), fake));
 				yield* TestClock.adjust("5 seconds");
 				expect(status(yield* Fiber.join(fiber))).toBe(502);
 				expect(fake.calls).toHaveLength(1);
 			}),
 		);
+	});
+});
+
+describe("handleDisabled", () => {
+	it("answers the loader with an empty, uncached script and refuses the rest", async () => {
+		const loader = handleDisabled(new Request(`${origin}${loaderPath}`))!;
+		expect(loader.status).toBe(200);
+		expect(await loader.text()).toBe("");
+		expect(loader.headers.get("cache-control")).toBe("no-store");
+		expect(handleDisabled(new Request(`${origin}/_sgtm/g/collect`))!.status).toBe(404);
+		expect(handleDisabled(new Request(`${origin}/blog`))).toBeNull();
 	});
 });

@@ -1,13 +1,14 @@
-# @numoteq/emdash-plugin-sgtm
+# @numoteq/sgtm-proxy
 
-## 0.1.1
+## 1.0.0
 
-### Patch Changes
+Renamed from `@numoteq/emdash-plugin-sgtm` (last version 0.1.1), which is deprecated.
 
-- b81ea5b: Encode script URLs that the container assigns as `TrustedScriptURL` objects (for example the `gtm.js?id=…&gtg_health=1` health check), which previously left the browser unencoded. On pages that enforce Trusted Types the original value is kept.
+### Major Changes
 
-## 0.1.0
-
-### Minor Changes
-
-- f462076: Adds a first-party, ad-blocker-resistant proxy from an Astro site on Cloudflare Workers to self-hosted server-side Google Tag Manager. The container is served from a per-site HMAC-derived path with Google's host rewritten to the site's own prefix, a browser shim encodes every request to that prefix, and the middleware decodes it before forwarding plain requests to sGTM. Exports `createSgtmHandler`, `sgtmLoaderPath` and an Astro `onRequest` middleware for EmDash's `middleware.outer`.
+- Runs as a framework-neutral `createSgtmHandler(options)` that turns a `Request` into a `Response`, or `null` for requests that are not its own. The Astro integration `sgtm()` from `@numoteq/sgtm-proxy/astro` registers it as middleware and reads `GTM_ID` and the `SGTM_UPSTREAM` binding from the Worker env at runtime.
+- Paths derive from the site host instead of the container id and a secret: the loader is `/<hash>.js` and encoded requests go to `/<hash>/<token>`. The page computes the loader path with `sgtmLoaderPath(location.host)` from the dependency-free `@numoteq/sgtm-proxy/client`. `SGTM_PROXY_SECRET` and `pathSalt` are gone.
+- The internal prefix is `/_sgtm` instead of `/k7`. Point the web container's `server_container_url` and the server container URL at `https://<site>/_sgtm`. The prefix never appears in the browser's network traffic.
+- The shim encodes only the path after the prefix, with a random salt, and never loads the GTM service worker iframe, so gtag sends from the page without a failed request.
+- Without `GTM_ID` or an upstream the loader answers an empty script and the reason is logged once, so one build serves production, previews and local development.
+- Logs are JSON, the timeouts cover reading the body, and a client disconnect interrupts the request.

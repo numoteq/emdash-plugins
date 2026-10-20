@@ -1,8 +1,7 @@
 import { defineConfig } from "tsdown";
 
-// A plain library: no emdash-plugin descriptor or sandbox bundle.
 export default defineConfig({
-	entry: { index: "src/index.ts" },
+	entry: { index: "src/index.ts", client: "src/client.ts", astro: "src/astro.ts" },
 	format: "esm",
 	dts: true,
 	clean: true,
