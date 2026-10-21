@@ -1,5 +1,11 @@
 # @numoteq/sgtm-proxy
 
+## 1.0.1
+
+### Patch Changes
+
+- a1ed4e8: Forward requests to sGTM without the `/_sgtm` prefix. sGTM strips only the path of its configured server container URL, so prefixed requests failed with HTTP 400 unless that URL ended in `/_sgtm`. Default paths work with any server container URL, so switching a site no longer has to be coordinated with the server container.
+
 ## 1.0.0
 
 Renamed from `@numoteq/emdash-plugin-sgtm` (last version 0.1.1), which is deprecated.
