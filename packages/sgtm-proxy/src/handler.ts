@@ -138,7 +138,7 @@ const serveLoader = Effect.fnUntraced(function* (request: Request, clientIp: str
 	}
 
 	const loader = yield* upstream
-		.fetch(`${SGTM_PREFIX}/gtm.js?id=${encodeURIComponent(gtmId)}`, {
+		.fetch(`/gtm.js?id=${encodeURIComponent(gtmId)}`, {
 			headers: upstreamHeaders(request, clientIp),
 			redirect: "manual",
 		})

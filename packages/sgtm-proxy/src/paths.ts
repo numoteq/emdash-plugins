@@ -3,7 +3,10 @@
  * shared configuration. Dependency-free: `@numoteq/sgtm-proxy/client` ships this file alone.
  */
 
-/** Path prefix routed to sGTM; equals the path of the server container URL. Never sent by the browser. */
+/**
+ * Marks the requests the shim encodes; the path of the web container's `server_container_url`.
+ * Never sent by the browser, and stripped before forwarding, so sGTM sees its default paths.
+ */
 export const SGTM_PREFIX = "/_sgtm";
 
 /** Mixed into the hash. Changing it moves every site to new paths. */

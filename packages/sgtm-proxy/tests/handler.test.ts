@@ -99,7 +99,7 @@ describe("handle", () => {
 				const response = Option.getOrThrow(yield* run(request, fake));
 				const body = yield* Effect.promise(() => response.text());
 
-				expect(fake.calls.map((call) => call.path)).toEqual(["/_sgtm/gtm.js?id=GTM-NTQ37T97"]);
+				expect(fake.calls.map((call) => call.path)).toEqual(["/gtm.js?id=GTM-NTQ37T97"]);
 				expect(new Headers(fake.calls[0]!.init.headers).get("x-forwarded-for")).toBe("203.0.113.9");
 				expect(body.startsWith("(function (window) {")).toBe(true);
 				expect(body).toContain(JSON.stringify(encodedPath));
@@ -184,23 +184,27 @@ describe("handle", () => {
 	});
 
 	describe("encoded requests", () => {
-		it.effect("forwards the decoded hit once, with method, body and filtered headers", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => new Response(null, { status: 204 }));
-				const request = new Request(encoded("/g/collect?v=2&en=page_view"), {
-					method: "POST",
-					body: "en=scroll",
-					headers: { cookie: "_ga=1; session=secret" },
-				});
+		it.effect(
+			"forwards the decoded hit once, without the prefix, with method, body and filtered headers",
+			() =>
+				Effect.gen(function* () {
+					const fake = upstream(() => new Response(null, { status: 204 }));
+					const request = new Request(encoded("/g/collect?v=2&en=page_view"), {
+						method: "POST",
+						body: "en=scroll",
+						headers: { cookie: "_ga=1; session=secret" },
+					});
 
-				expect(status(yield* run(request, fake))).toBe(204);
+					expect(status(yield* run(request, fake))).toBe(204);
 
-				const [call] = fake.calls;
-				expect(call!.path).toBe("/_sgtm/g/collect?v=2&en=page_view");
-				expect(call!.init.method).toBe("POST");
-				expect(new Headers(call!.init.headers).get("cookie")).toBe("_ga=1");
-				expect(yield* Effect.promise(() => new Response(call!.init.body).text())).toBe("en=scroll");
-			}),
+					const [call] = fake.calls;
+					expect(call!.path).toBe("/g/collect?v=2&en=page_view");
+					expect(call!.init.method).toBe("POST");
+					expect(new Headers(call!.init.headers).get("cookie")).toBe("_ga=1");
+					expect(yield* Effect.promise(() => new Response(call!.init.body).text())).toBe(
+						"en=scroll",
+					);
+				}),
 		);
 
 		it.effect("rewrites hosts in scripts the container loads", () =>

@@ -67,11 +67,12 @@ function install(options: { times?: number; trustedTypes?: boolean } = {}) {
 	return { window, sent, create };
 }
 
-/** The forwarded path an encoded URL stands for, or `null` when it was not encoded. */
+/** The prefixed path an encoded URL stands for, or `null` when it was not encoded. */
 function decoded(value: unknown): string | null {
 	const url = new URL(String(value));
 	if (url.origin !== origin || !url.pathname.startsWith(encoded)) return null;
-	return decodeToken(url.pathname.slice(encoded.length));
+	const forwarded = decodeToken(url.pathname.slice(encoded.length));
+	return forwarded && `/_sgtm${forwarded}`;
 }
 
 const hit = "/_sgtm/g/collect?v=2&tid=G-WSNXXNBYV7&en=page_view";

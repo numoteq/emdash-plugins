@@ -26,8 +26,8 @@ describe("paths", () => {
 describe("token", () => {
 	const hit = "/g/collect?v=2&tid=G-WSNXXNBYV7&en=page_view";
 
-	it("round-trips a path with its query and puts the prefix in front", () => {
-		expect(decodeToken(encodeToken(hit, salt))).toBe(`/_sgtm${hit}`);
+	it("round-trips a path with its query", () => {
+		expect(decodeToken(encodeToken(hit, salt))).toBe(hit);
 	});
 
 	it("hides the original URL and differs with every salt", () => {
@@ -39,7 +39,15 @@ describe("token", () => {
 	});
 
 	it("refuses anything that is not a canonical path under the prefix", () => {
-		for (const plain of ["/../admin", "/a\\b", "/a b", "x", "", "/%2e%2e/admin/../x"]) {
+		for (const plain of [
+			"/../admin",
+			"/a\\b",
+			"/a b",
+			"x",
+			"",
+			"/%2e%2e/admin/../x",
+			"//evil.example/x",
+		]) {
 			expect({ plain, decoded: decodeToken(encodeToken(plain, salt)) }).toEqual({
 				plain,
 				decoded: null,

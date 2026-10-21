@@ -4,8 +4,6 @@
  * for filter lists. Obfuscation, not security: the shim carries everything needed to decode it.
  */
 
-import { SGTM_PREFIX } from "./paths.js";
-
 function mask(text: string, salt: string): string {
 	let output = "";
 	for (let index = 0; index < text.length; index += 1) {
@@ -24,9 +22,8 @@ export function encodeToken(plain: string, salt: Uint8Array): string {
 }
 
 /**
- * Decodes a token into the path to forward, prefix included, or `null` unless it is a canonical
- * path under the prefix. Canonicality keeps a crafted token from escaping it with `..`, `\` or an
- * absolute URL.
+ * Decodes a token into the path to forward to sGTM, or `null` unless it is a canonical path.
+ * Canonicality keeps a crafted token from turning into `..`, `\` or an absolute URL.
  */
 export function decodeToken(token: string): string | null {
 	if (!/^[A-Za-z0-9_-]{7,}$/.test(token)) return null;
@@ -36,7 +33,7 @@ export function decodeToken(token: string): string | null {
 	} catch {
 		return null;
 	}
-	const target = SGTM_PREFIX + mask(bytes.slice(4), bytes.slice(0, 4));
+	const target = mask(bytes.slice(4), bytes.slice(0, 4));
 
 	let parsed: URL;
 	try {
@@ -46,6 +43,6 @@ export function decodeToken(token: string): string | null {
 	}
 	if (parsed.origin !== "https://sgtm.invalid") return null;
 	if (`${parsed.pathname}${parsed.search}` !== target) return null;
-	if (!parsed.pathname.startsWith(`${SGTM_PREFIX}/`)) return null;
+	if (!target.startsWith("/")) return null;
 	return target;
 }

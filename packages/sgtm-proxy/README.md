@@ -7,7 +7,7 @@ Ad blockers do not only block `www.googletagmanager.com`. EasyPrivacy and the Ad
 1. **Hashed paths.** The container loads from `/<hash>.js` and requests go to `/<hash>/<token>`. The hash derives from the site host, so the page and the Worker agree without configuration and no two sites share a path.
 2. **Rewritten hosts.** In every script served from sGTM, `www.googletagmanager.com` becomes `<site>/_sgtm`, so the container loads its dependencies and sends its hits first-party.
 3. **A shim** in front of the container encodes every request to `/_sgtm` into a random-looking token. It hooks only what gtm.js and gtag.js send with: `fetch`, `navigator.sendBeacon` and the `src` of script and image elements. `/_sgtm` never appears in the browser's network traffic.
-4. **The Worker** decodes tokens back into the original path and forwards them. sGTM only ever sees normal requests (`/_sgtm/gtm.js?id=GTM-…`, `/_sgtm/g/collect?…`).
+4. **The Worker** decodes tokens back into the original path, strips `/_sgtm` and forwards them. sGTM only ever sees its default paths (`/gtm.js?id=GTM-…`, `/g/collect?…`), whatever its server container URL says.
 
 The shim never loads GTM's service worker iframe, so gtag sends every hit from the page, without a failed request.
 
@@ -86,8 +86,8 @@ Without a valid `GTM_ID` or upstream the proxy is off and logs why once (for exa
 
 Server container:
 
-- **Container Settings → Server container URL:** `https://<site>/_sgtm`.
-- **Clients:** a **Google Tag Manager: Web Container** client allowing your web container id, and the **GA4** client. Check that `/_sgtm/gtm.js?id=<id>` on sGTM returns JavaScript.
+- **Container Settings → Server container URL:** `https://<site>/_sgtm`. It does not affect routing: the Worker forwards default paths, which sGTM accepts with or without the URL's path.
+- **Clients:** a **Google Tag Manager: Web Container** client allowing your web container id, and the **GA4** client. Check that `/gtm.js?id=<id>` on sGTM returns JavaScript.
 
 Web container:
 
