@@ -12,7 +12,7 @@ permissions:
 
 # The automatic token cannot open pull requests in a private repository
 # (forgejo/forgejo#13739), so the version PR is opened with a short-lived JWT
-# for the `bot` user's Authorized Integration "emdash-plugins release".
+# for the `bot` user's Authorized Integration "js-packages release".
 enable-openid-connect: true
 
 jobs:
