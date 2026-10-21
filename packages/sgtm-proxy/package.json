@@ -1,6 +1,6 @@
 {
 	"name": "@numoteq/sgtm-proxy",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "First-party, ad-blocker-resistant proxy from a Cloudflare Worker to self-hosted server-side Google Tag Manager",
 	"keywords": [
 		"astro",
