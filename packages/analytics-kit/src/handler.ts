@@ -6,8 +6,6 @@ import {
 	encodedPrefix,
 	loaderPath,
 	matchPrefix,
-	OPENPANEL_SCRIPTS,
-	PREFIX,
 	PREFIXES,
 	SGTM_PREFIX,
 	type UpstreamName,
@@ -67,7 +65,7 @@ export class Upstreams extends Context.Service<
 	}
 }
 
-/** Shared cache for the assembled loader and the OpenPanel SDK script. */
+/** Shared cache for the assembled loader. */
 export class ResponseCache extends Context.Service<
 	ResponseCache,
 	{
@@ -92,24 +90,12 @@ export class ResponseCache extends Context.Service<
 	});
 }
 
-export type Route = "loader" | "encoded" | "script" | "denied";
-
-/** The two scripts the shim leaves in the clear; nothing else is served without a token. */
-const SCRIPTS = new Set<string>(OPENPANEL_SCRIPTS);
-
-/**
- * The OpenPanel path to forward when `pathname` is one of the SDK's scripts. The set is shared with
- * the shim, so the browser and the Worker agree on exactly which URLs stay plain.
- */
-function openpanelScript(pathname: string): string | null {
-	return SCRIPTS.has(pathname) ? pathname.slice(PREFIX.openpanel.length) : null;
-}
+export type Route = "loader" | "encoded" | "denied";
 
 /** Which of the proxy's paths `url` is, or `null` when the request belongs to the site. */
 export function routeOf(url: URL): Route | null {
 	if (url.pathname === loaderPath(url.host)) return "loader";
 	if (url.pathname.startsWith(encodedPrefix(url.host))) return "encoded";
-	if (openpanelScript(url.pathname) !== null) return "script";
 	if (PREFIXES.some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`))) {
 		return "denied";
 	}
@@ -194,7 +180,7 @@ const serveLoader = Effect.fn("analytics.loader")(function* (
 	const loader = yield* Effect.gen(function* () {
 		const answer = yield* upstream
 			.fetch(`/gtm.js?id=${encodeURIComponent(gtmId)}`, {
-				headers: upstreamHeaders(request, clientIp, "sgtm"),
+				headers: upstreamHeaders(request, clientIp),
 				redirect: "manual",
 			})
 			.pipe(
@@ -241,7 +227,7 @@ const forwardEncoded = Effect.fn("analytics.forward")(function* (
 	return yield* Effect.gen(function* () {
 		const answer = yield* upstream.fetch(matched.path, {
 			method: request.method,
-			headers: upstreamHeaders(request, clientIp, matched.name),
+			headers: upstreamHeaders(request, clientIp),
 			body: hasBody ? request.body : null,
 			redirect: "manual",
 			...(hasBody ? { duplex: "half" } : {}),
@@ -254,44 +240,9 @@ const forwardEncoded = Effect.fn("analytics.forward")(function* (
 	}).pipe(timeout(REQUEST_TIMEOUT));
 });
 
-/** The OpenPanel SDK script, served first-party and cached; replay paths go through the shim. */
-const serveOpenpanelScript = Effect.fn("analytics.script")(function* (
-	request: Request,
-	clientIp: string | undefined,
-) {
-	const upstreams = yield* Upstreams;
-	const cache = yield* ResponseCache;
-	const url = new URL(request.url);
-	const path = openpanelScript(url.pathname);
-	const upstream = Option.getOrUndefined(upstreams.get("openpanel"));
-	if (path === null || upstream === undefined) return empty(404);
-
-	const key = `${url.origin}${PREFIX.openpanel}${path}`;
-	const cached = yield* cache.get(key);
-	if (Option.isSome(cached)) {
-		yield* Effect.annotateCurrentSpan("analytics.cache", "hit");
-		return cached.value;
-	}
-
-	return yield* Effect.gen(function* () {
-		const answer = yield* upstream.fetch(path, {
-			headers: upstreamHeaders(request, clientIp, "openpanel"),
-			redirect: "manual",
-		});
-		if (!answer.ok || !isJavaScript(answer)) return answer;
-
-		const body = yield* readBody(answer);
-		const script = rebuildResponse(answer, body, {
-			"cache-control": `public, max-age=${CACHE_TTL_SECONDS}`,
-		});
-		yield* cache.put(key, script.clone());
-		return script;
-	}).pipe(timeout(REQUEST_TIMEOUT));
-});
-
 /**
- * Answers the loader, encoded requests, plain OpenPanel scripts and everything else under a prefix
- * (404: the shim never sends plain data requests). `None` means the request belongs to the site.
+ * Answers the loader, encoded requests and everything else under the sGTM prefix (404: the shim
+ * never sends plain data requests). `None` means the request belongs to the site.
  */
 export const handle = (request: Request) => {
 	const route = routeOf(new URL(request.url));
@@ -307,9 +258,7 @@ export const handle = (request: Request) => {
 			? serveLoader(request, clientIp)
 			: route === "encoded"
 				? forwardEncoded(request, clientIp)
-				: route === "script"
-					? serveOpenpanelScript(request, clientIp)
-					: Effect.succeed(empty(404));
+				: Effect.succeed(empty(404));
 
 	return routed.pipe(
 		Effect.catchTags({

@@ -11,7 +11,7 @@ import {
 } from "./server/send.js";
 
 export type { AnalyticsOptions, UpstreamBinding, UpstreamInput } from "./config.js";
-export { loaderPath, OPENPANEL_PREFIX, PREFIX, PREFIXES, SGTM_PREFIX } from "./paths.js";
+export { loaderPath, PREFIX, PREFIXES, SGTM_PREFIX } from "./paths.js";
 export type { UpstreamName } from "./paths.js";
 export {
 	createServerEvents,

@@ -27,7 +27,7 @@ describe("paths", () => {
 });
 
 describe("token", () => {
-	const hits = ["/_sgtm/g/collect?v=2", "/_op/track"];
+	const hits = ["/_sgtm/g/collect?v=2", "/_sgtm/gtag/js?id=G-ABC123"];
 
 	it("round-trips a full internal path with its query", () => {
 		for (const hit of hits) {

@@ -14,11 +14,6 @@ const sgtm = {
 		new URL(request.url).pathname === "/gtm.js" ? script() : new Response(null, { status: 204 }),
 };
 
-const openpanel = {
-	fetch: async () =>
-		new Response("console.log(1)", { headers: { "content-type": "text/javascript" } }),
-};
-
 describe("createProxyHandler", () => {
 	it("answers the loader and leaves other requests to the site", async () => {
 		const handler = createProxyHandler({ gtmId: GTM_ID, sgtm });
@@ -46,16 +41,6 @@ describe("createProxyHandler", () => {
 			(await handler(new Request(`${origin}${encodedPrefix("site.example")}garbage`)))!.status,
 		).toBe(400);
 		log.mockRestore();
-	});
-
-	it("serves the OpenPanel script with OpenPanel configured alone", async () => {
-		const handler = createProxyHandler({ openpanel });
-
-		const response = await handler(new Request(`${origin}/_op/op1.js`));
-
-		expect(response!.status).toBe(200);
-		expect(await response!.text()).toBe("console.log(1)");
-		expect(await handler(new Request(`${origin}/blog`))).toBeNull();
 	});
 
 	it("answers an aborted request with an empty response and no upstream call", async () => {
@@ -94,7 +79,6 @@ describe("createAnalytics", () => {
 						: new Response(null, { status: 204 });
 				},
 			},
-			openpanel,
 			serverEvents: { measurementId: "G-WSNXXNBYV7" },
 		});
 
@@ -119,7 +103,6 @@ describe("createAnalytics", () => {
 					return new Response(null, { status: 204 });
 				},
 			},
-			openpanel,
 			serverEvents: { measurementId: "G-WSNXXNBYV7" },
 		});
 
@@ -149,7 +132,6 @@ describe("createAnalytics", () => {
 					return script();
 				},
 			},
-			openpanel,
 			serverEvents: { measurementId: "not-a-ga4-id" },
 		});
 
@@ -170,7 +152,6 @@ describe("createAnalytics", () => {
 					return script();
 				},
 			},
-			openpanel,
 			serverEvents: false,
 		});
 

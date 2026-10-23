@@ -4,30 +4,20 @@
  */
 
 /**
- * Internal prefixes, one per upstream. The browser never sends them as they are: the shim encodes
- * every request under a prefix into a token, and the Worker decodes the prefix back into a route.
+ * The internal sGTM prefix. The browser never sends it as it is: the shim encodes every request
+ * under it into a token, and the Worker decodes the prefix back into the upstream path.
  */
 export const PREFIX = {
 	/** Server-side Google Tag Manager; also the web container's `server_container_url`. */
 	sgtm: "/_sgtm",
-	/** OpenPanel: the SDK script and its session replay chunks. */
-	openpanel: "/_op",
 } as const;
 
 export type UpstreamName = keyof typeof PREFIX;
 
-/** Every prefix, in the order the shim checks them. */
+/** The prefixes the shim checks. */
 export const PREFIXES: readonly (typeof PREFIX)[UpstreamName][] = Object.values(PREFIX);
 
 export const SGTM_PREFIX = PREFIX.sgtm;
-export const OPENPANEL_PREFIX = PREFIX.openpanel;
-
-/**
- * The OpenPanel scripts served in the clear, at fixed paths the site can put in a Custom HTML tag.
- * They are not encoded because the SDK derives `op1-replay.js` by rewriting the `src` of `op1.js`,
- * and a token carries no filename. The shim and the Worker share this list.
- */
-export const OPENPANEL_SCRIPTS = ["/_op/op1.js", "/_op/op1-replay.js"] as const;
 
 /** Mixed into the hash. Changing it moves every site to new paths. */
 const LABEL = "analytics/1";

@@ -58,10 +58,11 @@ describe("upstreamHeaders", () => {
 				cookie: "_ga=1; session=secret",
 				"x-forwarded-for": "198.51.100.1",
 				"user-agent": "test",
+				authorization: "Bearer secret",
 			},
 		});
 
-		const headers = upstreamHeaders(request, "203.0.113.9", "sgtm");
+		const headers = upstreamHeaders(request, "203.0.113.9");
 
 		expect(Object.fromEntries(headers)).toEqual({
 			"cf-ray": "1",
@@ -75,48 +76,13 @@ describe("upstreamHeaders", () => {
 		});
 	});
 
-	it("drops the whole cookie header and records the client for OpenPanel", () => {
-		const request = new Request("https://site.example/_op/track", {
-			headers: {
-				"cf-ray": "1",
-				"cf-ipcountry": "CZ",
-				"cf-connecting-ip": "203.0.113.9",
-				cookie: "_ga=1; session=secret",
-				"x-forwarded-for": "198.51.100.1",
-				"user-agent": "test",
-				authorization: "Bearer secret",
-				"openpanel-client-ip": "1.2.3.4",
-				"true-client-ip": "5.6.7.8",
-				"x-client-ip": "9.9.9.9",
-			},
-		});
-
-		const headers = upstreamHeaders(request, "203.0.113.9", "openpanel");
-
-		expect(Object.fromEntries(headers)).toEqual({
-			"cf-ray": "1",
-			"cf-ipcountry": "CZ",
-			// The address headers are dropped and only the trusted one is set again.
-			"openpanel-client-ip": "203.0.113.9",
-			"user-agent": "test",
-			"x-forwarded-for": "203.0.113.9",
-			"x-forwarded-host": "site.example",
-			"x-forwarded-proto": "https",
-		});
-		expect(headers.has("cookie")).toBe(false);
-		expect(headers.has("authorization")).toBe(false);
-		expect(headers.has("true-client-ip")).toBe(false);
-		expect(headers.has("x-client-ip")).toBe(false);
-	});
-
 	it("does not invent an address, and forwards no spoofed one", () => {
-		const request = new Request("https://site.example/_op/track", {
-			headers: { "openpanel-client-ip": "1.2.3.4", "x-forwarded-for": "5.6.7.8" },
+		const request = new Request("https://site.example/_sgtm/g/collect", {
+			headers: { "x-forwarded-for": "5.6.7.8" },
 		});
 
-		const headers = upstreamHeaders(request, undefined, "openpanel");
+		const headers = upstreamHeaders(request, undefined);
 
-		expect(headers.has("openpanel-client-ip")).toBe(false);
 		expect(headers.has("x-forwarded-for")).toBe(false);
 		expect(headers.get("x-forwarded-host")).toBe("site.example");
 	});

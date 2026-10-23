@@ -75,37 +75,29 @@ function decoded(value: unknown): string | null {
 }
 
 const sgtmHit = "/_sgtm/g/collect?v=2&tid=G-WSNXXNBYV7&en=page_view";
-const openpanelHit = "/_op/track";
+const secondHit = "/_sgtm/g/collect?v=2&tid=G-WSNXXNBYV7&en=scroll";
 
 describe("shim", () => {
-	it("encodes fetch, sendBeacon, script and image requests under both prefixes", async () => {
+	it("encodes fetch, sendBeacon, script and image requests under the sGTM prefix", async () => {
 		const { window, sent, create } = install();
 
 		await (window["fetch"] as (input: unknown) => Promise<Response>)(`${origin}${sgtmHit}`);
 		await (window["fetch"] as (input: unknown) => Promise<Response>)(new URL(sgtmHit, origin));
-		(window["navigator"] as { sendBeacon: (url: string) => boolean }).sendBeacon(openpanelHit);
+		(window["navigator"] as { sendBeacon: (url: string) => boolean }).sendBeacon(secondHit);
 		create("HTMLScriptElement").src = "/_sgtm/gtag/js?id=G-WSNXXNBYV7";
-		create("HTMLImageElement").src = `${origin}${openpanelHit}`;
+		create("HTMLImageElement").src = `${origin}${secondHit}`;
 
 		expect(sent.map(decoded)).toEqual([
 			sgtmHit,
 			sgtmHit,
-			openpanelHit,
+			secondHit,
 			"/_sgtm/gtag/js?id=G-WSNXXNBYV7",
-			openpanelHit,
+			secondHit,
 		]);
 		for (const value of sent) {
 			expect(String(value)).not.toContain("/_sgtm");
-			expect(String(value)).not.toContain("/_op");
 			expect(String(value)).not.toContain("collect");
 		}
-	});
-
-	it("leaves the OpenPanel SDK's own .js paths untouched", () => {
-		const { sent, create } = install();
-		const scripts = ["/_op/op1.js", "/_op/op1-replay.js"];
-		for (const script of scripts) create("HTMLScriptElement").src = script;
-		expect(sent).toEqual(scripts);
 	});
 
 	it("gives every request a different token", () => {

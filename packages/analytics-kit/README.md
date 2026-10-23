@@ -2,7 +2,7 @@
 
 First-party analytics plumbing for sites on Cloudflare Workers and Astro. One package, four parts:
 
-- **A proxy** to self-hosted server-side Google Tag Manager (sGTM) and OpenPanel, reachable from the page without ad-blocker-shaped URLs.
+- **A proxy** to self-hosted server-side Google Tag Manager (sGTM), reachable from the page without ad-blocker-shaped URLs.
 - **Server events** that send from an API route or an action through the Measurement Protocol client of our sGTM, with the visitor's identifiers, address and consent.
 - **A c15t preset** with our consent categories and the container script that loads through the proxy.
 - **Client paths** with no dependencies, for the page.
@@ -21,17 +21,12 @@ Ad blockers do not only block `www.googletagmanager.com`. EasyPrivacy and the Ad
 
 1. **Hashed paths.** The container loads from `/<hash>.js` and requests go to `/<hash>/<token>`. The hash derives from the site host, so the page and the Worker agree without configuration and no two sites share a path.
 2. **Rewritten hosts.** In every script served from sGTM, `www.googletagmanager.com` becomes `<site>/_sgtm`, so the container loads its dependencies and sends its hits first-party.
-3. **A shim** in front of the container encodes every data request under an internal prefix (see below) into a random-looking token. It hooks only what gtm.js, gtag.js and the OpenPanel SDK send with: `fetch`, `navigator.sendBeacon` and the `src` of script and image elements.
-4. **The Worker** decodes tokens back into the path, strips the prefix and forwards them to the right upstream.
+3. **A shim** in front of the container encodes every data request under `/_sgtm` into a random-looking token. It hooks only what gtm.js and gtag.js send with: `fetch`, `navigator.sendBeacon` and the `src` of script and image elements.
+4. **The Worker** decodes tokens back into the path, strips the prefix and forwards them to sGTM.
 
 The shim never loads GTM's service worker iframe, so gtag sends every hit from the page, without a failed request.
 
-| Prefix | Upstream option | What goes through |
-| --- | --- | --- |
-| `/_sgtm` | `sgtm` (`SGTM_UPSTREAM`) | Everything the container sends: `/gtm.js`, `/gtag/js`, `/g/collect`, … |
-| `/_op` | `openpanel` (`OPENPANEL_UPSTREAM`) | The OpenPanel SDK script and its `/track` calls |
-
-Each upstream is optional. A prefix without one answers `404` and the other prefixes keep working.
+The `sgtm` upstream (`SGTM_UPSTREAM`) carries everything the container sends: `/gtm.js`, `/gtag/js`, `/g/collect`, … Without it the loader serves an empty script and `/_sgtm` answers `404`.
 
 ### Astro
 
@@ -50,16 +45,12 @@ The integration adds middleware that runs before every other middleware and sets
 // wrangler.jsonc
 {
 	"vars": { "GTM_ID": "GTM-XXXXXXX" },
-	"vpc_services": [
-		{ "binding": "SGTM_UPSTREAM", "service_id": "<id>", "remote": true },
-		{ "binding": "OPENPANEL_UPSTREAM", "service_id": "<id>", "remote": true },
-	],
+	"vpc_services": [{ "binding": "SGTM_UPSTREAM", "service_id": "<id>", "remote": true }],
 }
 ```
 
 - `GTM_ID` is the id of the **web** container whose `gtm.js` is loaded, not of the server container. sGTM knows its own container from its deployment.
-- `SGTM_UPSTREAM` and `OPENPANEL_UPSTREAM` reach the services: a Workers VPC binding keeps them off the public internet; a service binding works too, and so does a plain origin such as `https://sgtm.example.com` (no path).
-- `OPENPANEL_UPSTREAM` is the origin of the OpenPanel instance, the same one its SDK calls `apiUrl`.
+- `SGTM_UPSTREAM` reaches sGTM: a Workers VPC binding keeps it off the public internet; a service binding works too, and so does a plain origin such as `https://sgtm.example.com` (no path).
 
 Server events are on whenever `SGTM_UPSTREAM` is set; the middleware sets `locals.analytics` on every request. Other names:
 
@@ -67,7 +58,6 @@ Server events are on whenever `SGTM_UPSTREAM` is set; the middleware sets `local
 analytics({
 	gtmIdVar: "WEB_GTM",
 	sgtmBinding: "TAGGING",
-	openpanelBinding: "OPENPANEL",
 	serverEvents: { measurementIdVar: "GA4_ID", apiSecretVar: "MP_SECRET" },
 });
 ```
@@ -94,7 +84,6 @@ import { createProxyHandler } from "@numoteq/analytics-kit";
 const handler = createProxyHandler({
 	gtmId: env.GTM_ID,
 	sgtm: env.SGTM_UPSTREAM,
-	openpanel: env.OPENPANEL_UPSTREAM,
 });
 const response = (await handler(request)) ?? (await site(request));
 ```
@@ -103,8 +92,7 @@ const response = (await handler(request)) ?? (await site(request));
 
 - **Loader:** fetched from sGTM with up to two retries and a 10 s timeout per attempt, then cached for 5 minutes in the Workers Cache API. Server-side preview requests (`X-Gtm-Server-Preview`) and responses that set cookies bypass the cache; a preview is answered `Cache-Control: no-store` with `Vary: X-Gtm-Server-Preview`, so no edge cache can hand it to a normal visitor.
 - **Encoded requests:** forwarded once with a 5 s timeout. A hit is never retried, so it cannot count twice.
-- **OpenPanel scripts:** `/_op/op1.js` and `/_op/op1-replay.js` are the only plain paths; anything else under `/_op` without a token answers `404`. They are not encoded because the SDK derives its replay helper by rewriting the `src` of `op1.js`, and a token carries no filename. They are cached for 5 minutes like the loader.
-- **Headers:** everything the browser sent is forwarded, Cloudflare's `cf-*` included, so sGTM tags can read `cf-ipcountry` and friends. Cookies are narrowed to `_ga*`, `_gid`, `_gcl_*`, `_fbp`, `_fbc`, `FPID`, `FPLC`, `FPAU`, `FPGCL*`, `FPGSID` and `_gtmeec` for sGTM, and dropped entirely for OpenPanel. `x-forwarded-for`, `-host` and `-proto` describe the original request (the first from `cf-connecting-ip`, so only on Cloudflare), `authorization` never leaves the site, and OpenPanel gets the visitor's address in `openpanel-client-ip` with the browser's own user agent; address headers the browser could spoof are dropped.
+- **Headers:** everything the browser sent is forwarded, Cloudflare's `cf-*` included, so sGTM tags can read `cf-ipcountry` and friends. Cookies are narrowed to `_ga*`, `_gid`, `_gcl_*`, `_fbp`, `_fbc`, `FPID`, `FPLC`, `FPAU`, `FPGCL*`, `FPGSID` and `_gtmeec`. `x-forwarded-for`, `-host` and `-proto` describe the original request (the first is rebuilt from `cf-connecting-ip`, so only on Cloudflare), and `authorization` never leaves the site.
 - **Failures:** an upstream that is unreachable or too slow answers `502` and logs a warning, an unknown token or a path under no prefix `400`, a plain data request under a prefix `404`. The site's own error page never shows.
 - **Turned off:** a part with missing or invalid options logs why once and turns itself off. The loader then answers an empty script with `Cache-Control: no-store`, so pages in previews and local development load quietly.
 - **Logs:** JSON, only for the cases above. Workers Logs already record every request.
@@ -120,23 +108,6 @@ Web container:
 
 - The Google tag's `server_container_url` is the same `https://<site>/_sgtm`.
 - Remove the standard GTM snippet; the page loads the container from the loader path.
-
-OpenPanel, from a GTM Custom HTML tag or the page:
-
-```html
-<script src="https://<site>/_op/op1.js"></script>
-<script>
-	window.op("init", {
-		clientId: "…",
-		apiUrl: location.origin + "/_op", // no trailing slash: it would produce //track
-		trackScreenViews: false,
-		trackOutgoingLinks: false,
-		trackAttributes: false, // events come from the GA4 hit through sGTM
-	});
-</script>
-```
-
-Leave `apiUrl` without a trailing slash: the SDK appends `/track` itself. With the proxy in front, `/_op/track` never appears in the browser's network traffic.
 
 ## Server events
 
@@ -192,7 +163,7 @@ const program = Effect.gen(function* () {
 });
 ```
 
-`createAnalytics({ gtmId, sgtm, openpanel, serverEvents })` builds the proxy and the sender on **one** runtime and returns `{ handle, send }`; that is what the Astro integration uses. `serverEvents: false` turns the sender off silently, for a site that only proxies. `createProxyHandler(options)` is `handle` alone, `createServerEvents(options)` is `send` alone.
+`createAnalytics({ gtmId, sgtm, serverEvents })` builds the proxy and the sender on **one** runtime and returns `{ handle, send }`; that is what the Astro integration uses. `serverEvents: false` turns the sender off silently, for a site that only proxies. `createProxyHandler(options)` is `handle` alone, `createServerEvents(options)` is `send` alone.
 
 An event is sent once. No vendor downstream deduplicates a repeated event, and a `fetch` that fails cannot be told apart from one that arrived and lost its answer, so there is no retry.
 
@@ -232,8 +203,7 @@ export default {
 ## Limits
 
 - Requests the browser sends straight to Google or Meta domains (Ads conversion pings, `google.com/ccm`, the Meta pixel) are not proxied. Move those tags into the server container.
-- The shim hooks `fetch` with a string or `URL`, `sendBeacon` and the `src` of script and image elements. It does not hook `XMLHttpRequest`, `setAttribute("src")` or `fetch(new Request(…))`; the OpenPanel SDK uses none of them. A script you add to the page must send through the hooked channels to be proxied.
-- OpenPanel replay chunks are ordinary `/track` calls, so they are proxied, but the SDK sends the last one without `keepalive`: a visitor who closes the tab mid-flush loses it.
+- The shim hooks `fetch` with a string or `URL`, `sendBeacon` and the `src` of script and image elements. It does not hook `XMLHttpRequest`, `setAttribute("src")` or `fetch(new Request(…))`. A script you add to the page must send through the hooked channels to be proxied.
 - The token is obfuscation, not encryption: the shim carries everything needed to decode it. It defeats static URL patterns and authenticates nothing.
 - The proxy is transport only. It does not read, set or bypass consent; keep consent mode and your CMP as they are.
 

@@ -1,7 +1,5 @@
 /** Script host rewriting, upstream request headers and response rebuilding. */
 
-import type { UpstreamName } from "./paths.js";
-
 const encoder = new TextEncoder();
 
 /** Cookies forwarded to sGTM. Everything else stays between the browser and the site. */
@@ -9,16 +7,6 @@ const COOKIE_ALLOW = /^(_ga|_gid|_gcl_|_fbp$|_fbc$|FPID$|FPLC$|FPAU$|FPGCL|FPGSI
 
 /** Never forwarded: credentials of the site and the hop-by-hop address chain we rebuild. */
 const DROPPED = new Set(["authorization", "proxy-authorization", "cookie", "x-forwarded-for"]);
-
-/** Address headers OpenPanel would trust, and a browser can spoof; only `clientIp` is re-set. */
-const ADDRESS_HEADERS = [
-	"openpanel-client-ip",
-	"true-client-ip",
-	"x-client-ip",
-	"x-real-ip",
-	"cf-connecting-ip",
-	"x-forwarded-for",
-];
 
 function indexOfBytes(haystack: Uint8Array, needle: Uint8Array, from: number): number {
 	const last = haystack.length - needle.length;
@@ -96,28 +84,17 @@ export function filterCookies(header: string | null): string {
 /**
  * Headers of a forwarded request. Everything the browser sent is kept, Cloudflare headers
  * included, so sGTM tags can read `cf-*`; only credentials, `cookie` and `x-forwarded-for` are
- * narrowed or replaced. sGTM gets the analytics cookies alone, OpenPanel none (its identity
- * travels in `openpanel-client-id` and the visitor's IP in `openpanel-client-ip`).
+ * narrowed or replaced. sGTM gets the analytics cookies alone.
  */
-export function upstreamHeaders(
-	request: Request,
-	clientIp: string | undefined,
-	upstream: UpstreamName,
-): Headers {
+export function upstreamHeaders(request: Request, clientIp: string | undefined): Headers {
 	const url = new URL(request.url);
 	const headers = new Headers();
 	for (const [name, value] of request.headers) {
 		if (DROPPED.has(name)) continue;
 		headers.set(name, value);
 	}
-	if (upstream === "sgtm") {
-		const cookie = filterCookies(request.headers.get("cookie"));
-		if (cookie !== "") headers.set("cookie", cookie);
-	} else {
-		// Every address header is browser-controlled; only the one Cloudflare sets is trusted.
-		for (const name of ADDRESS_HEADERS) headers.delete(name);
-		if (clientIp) headers.set("openpanel-client-ip", clientIp);
-	}
+	const cookie = filterCookies(request.headers.get("cookie"));
+	if (cookie !== "") headers.set("cookie", cookie);
 	if (clientIp) headers.set("x-forwarded-for", clientIp);
 	headers.set("x-forwarded-host", url.host);
 	headers.set("x-forwarded-proto", url.protocol.slice(0, -1));

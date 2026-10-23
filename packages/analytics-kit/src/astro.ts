@@ -14,8 +14,6 @@ export interface AnalyticsAstroOptions {
 	readonly gtmIdVar?: string;
 	/** Workers VPC or service binding that reaches sGTM. Default `SGTM_UPSTREAM`. */
 	readonly sgtmBinding?: string;
-	/** Workers VPC or service binding that reaches OpenPanel. Default `OPENPANEL_UPSTREAM`. */
-	readonly openpanelBinding?: string;
 	readonly serverEvents?: ServerEventsAstroOptions;
 }
 
@@ -63,7 +61,6 @@ const MIDDLEWARE_ID = "virtual:@numoteq/analytics-kit/middleware";
 function middlewareSource(
 	gtmIdVar: string,
 	sgtmBinding: string,
-	openpanelBinding: string,
 	serverEvents: ServerEventsAstroOptions,
 ): string {
 	const settings = [
@@ -88,7 +85,6 @@ function getClient() {
 	instance ??= createAnalytics({
 		gtmId: env[${JSON.stringify(gtmIdVar)}],
 		sgtm: env[${JSON.stringify(sgtmBinding)}],
-		openpanel: env[${JSON.stringify(openpanelBinding)}],
 		serverEvents: {
 ${settings}
 		},
@@ -129,7 +125,6 @@ export function analytics(options: AnalyticsAstroOptions = {}): AstroIntegration
 	const source = middlewareSource(
 		options.gtmIdVar ?? "GTM_ID",
 		options.sgtmBinding ?? "SGTM_UPSTREAM",
-		options.openpanelBinding ?? "OPENPANEL_UPSTREAM",
 		options.serverEvents ?? {},
 	);
 	return {

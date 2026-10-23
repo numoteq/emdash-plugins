@@ -6,7 +6,7 @@ npm packages by NUMOTEQ, maintained in a public pnpm monorepo and published unde
 
 | Package | Description | Status |
 | --- | --- | --- |
-| [`@numoteq/analytics-kit`](packages/analytics-kit) | First-party analytics for Cloudflare Workers and Astro: a proxy to self-hosted sGTM and OpenPanel, server events, and a c15t preset. | Active |
+| [`@numoteq/analytics-kit`](packages/analytics-kit) | First-party analytics for Cloudflare Workers and Astro: a proxy to self-hosted sGTM, server events, and a c15t preset. | Active |
 | [`@numoteq/emdash-plugin-ahasend`](packages/emdash-plugin-ahasend) | EmDash plugin that delivers transactional email through the AhaSend API. | Active |
 | [`@numoteq/sgtm-proxy`](packages/sgtm-proxy) | First-party, ad-blocker-resistant proxy from a Cloudflare Worker to self-hosted server-side Google Tag Manager. | Active |
 

@@ -54,7 +54,6 @@ describe("@numoteq/analytics-kit/astro", () => {
 		expect(source).toContain('import { createAnalytics } from "@numoteq/analytics-kit";');
 		expect(source).toContain('env["GTM_ID"]');
 		expect(source).toContain('env["SGTM_UPSTREAM"]');
-		expect(source).toContain('env["OPENPANEL_UPSTREAM"]');
 		expect(source).toContain("createAnalytics(");
 		expect(source).toContain("client.handle(context.request)");
 		expect(source).toContain("client.send(");
@@ -67,11 +66,9 @@ describe("@numoteq/analytics-kit/astro", () => {
 		const { source } = setup({
 			gtmIdVar: "WEB_GTM",
 			sgtmBinding: "TAGGING",
-			openpanelBinding: "PANEL",
 		});
 		expect(source).toContain('env["WEB_GTM"]');
 		expect(source).toContain('env["TAGGING"]');
-		expect(source).toContain('env["PANEL"]');
 	});
 
 	it("passes the event options through to the sender", () => {

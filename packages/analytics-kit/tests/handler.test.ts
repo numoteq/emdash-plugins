@@ -52,7 +52,6 @@ const script = (body = CONTAINER, headers: Record<string, string> = {}) =>
 interface Setup {
 	readonly gtmId?: string | undefined;
 	readonly sgtm?: Fake;
-	readonly openpanel?: Fake;
 	readonly cache?: ReturnType<typeof memoryCache>;
 }
 
@@ -61,7 +60,6 @@ const runWith = (request: Request, setup: Setup) => {
 	const options: AnalyticsOptions = {
 		gtmId: setup.gtmId,
 		sgtm: setup.sgtm?.binding,
-		openpanel: setup.openpanel?.binding,
 	};
 	const resolved = resolveOptions(options);
 	const cache = setup.cache ?? memoryCache();
@@ -72,8 +70,8 @@ const runWith = (request: Request, setup: Setup) => {
 	);
 };
 
-const run = (request: Request, sgtm?: Fake, openpanel?: Fake, cache = memoryCache()) =>
-	runWith(request, { gtmId: GTM_ID, sgtm, openpanel, cache });
+const run = (request: Request, sgtm?: Fake, cache = memoryCache()) =>
+	runWith(request, { gtmId: GTM_ID, sgtm, cache });
 
 const encoded = (plain: string) =>
 	`${origin}${encodedPath}${encodeToken(plain, crypto.getRandomValues(new Uint8Array(4)))}`;
@@ -87,12 +85,9 @@ describe("routeOf", () => {
 			[`${encodedPath}x`, "encoded"],
 			["/_sgtm", "denied"],
 			["/_sgtm/g/collect", "denied"],
-			["/_op", "denied"],
-			["/_op/track", "denied"],
-			["/_op/op1.js", "script"],
-			["/_op/op1-replay.js", "script"],
-			["/_op/other.js", "denied"],
-			["/_opX/op1.js", null],
+			["/_op", null],
+			["/_op/track", null],
+			["/_op/op1.js", null],
 			["/", null],
 			["/blog", null],
 			["/_sgtmx", null],
@@ -107,7 +102,7 @@ describe("routeOf", () => {
 
 describe("handle", () => {
 	describe("loader", () => {
-		it.effect("serves gtm.js with the shim in front, both prefixes and the hosts rewritten", () =>
+		it.effect("serves gtm.js with the shim in front, the sGTM prefix and hosts rewritten", () =>
 			Effect.gen(function* () {
 				const fake = upstream(() => script());
 				const request = new Request(`${origin}${loader}?x=1`, {
@@ -123,7 +118,7 @@ describe("handle", () => {
 				);
 				expect(body.startsWith("(function (window) {")).toBe(true);
 				expect(body).toContain(JSON.stringify(encodedPath));
-				expect(body).toContain(JSON.stringify(["/_sgtm/", "/_op/"]));
+				expect(body).toContain(JSON.stringify(["/_sgtm/"]));
 				expect(body).toContain('var h="https://site.example/_sgtm/gtag/js"');
 				expect(body).toContain('"21":"site.example/_sgtm"');
 				expect(body).not.toContain("googletagmanager.com");
@@ -138,13 +133,12 @@ describe("handle", () => {
 				const cache = memoryCache();
 				const target = `${origin}${loader}`;
 
-				yield* run(new Request(`${target}?a=1`), fake, undefined, cache);
-				const cached = yield* run(new Request(target), fake, undefined, cache);
+				yield* run(new Request(`${target}?a=1`), fake, cache);
+				const cached = yield* run(new Request(target), fake, cache);
 				const preview = Option.getOrThrow(
 					yield* run(
 						new Request(target, { headers: { "x-gtm-server-preview": "abc" } }),
 						fake,
-						undefined,
 						cache,
 					),
 				);
@@ -163,7 +157,6 @@ describe("handle", () => {
 				yield* run(
 					new Request(`${origin}${loader}`),
 					upstream(() => script(CONTAINER, { "set-cookie": "FPID=1" })),
-					undefined,
 					cache,
 				);
 				expect(cache.entries.size).toBe(0);
@@ -206,9 +199,7 @@ describe("handle", () => {
 			Effect.gen(function* () {
 				const cache = memoryCache();
 				const fake = upstream(() => new Response("no client", { status: 400 }));
-				expect(status(yield* run(new Request(`${origin}${loader}`), fake, undefined, cache))).toBe(
-					400,
-				);
+				expect(status(yield* run(new Request(`${origin}${loader}`), fake, cache))).toBe(400);
 				expect(fake.calls).toHaveLength(1);
 				expect(cache.entries.size).toBe(0);
 			}),
@@ -269,35 +260,12 @@ describe("handle", () => {
 				}),
 		);
 
-		it.effect("forwards an OpenPanel hit with the client ip and no cookies", () =>
+		it.effect("answers 404 when sGTM is not configured", () =>
 			Effect.gen(function* () {
-				const fake = upstream(() => new Response(null, { status: 204 }));
-				const request = new Request(encoded("/_op/track"), {
-					method: "POST",
-					body: '{"name":"page_view"}',
-					headers: {
-						cookie: "_ga=1; session=secret",
-						"cf-connecting-ip": "203.0.113.9",
-						"user-agent": "test",
-					},
+				const response = yield* runWith(new Request(encoded("/_sgtm/g/collect")), {
+					gtmId: GTM_ID,
 				});
-
-				expect(status(yield* run(request, undefined, fake))).toBe(204);
-
-				const [call] = fake.calls;
-				const headers = new Headers(call!.request.headers);
-				expect(call!.path).toBe("/track");
-				expect(headers.get("openpanel-client-ip")).toBe("203.0.113.9");
-				expect(headers.get("user-agent")).toBe("test");
-				expect(headers.has("cookie")).toBe(false);
-			}),
-		);
-
-		it.effect("answers 404 when the token names an upstream that is not configured", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => script());
-				expect(status(yield* run(new Request(encoded("/_op/track")), fake))).toBe(404);
-				expect(fake.calls).toHaveLength(0);
+				expect(status(response)).toBe(404);
 			}),
 		);
 
@@ -306,20 +274,6 @@ describe("handle", () => {
 				const fake = upstream(() => script());
 				expect(status(yield* run(new Request(encoded("/_sgtm//evil.example/x")), fake))).toBe(400);
 				expect(fake.calls).toHaveLength(0);
-			}),
-		);
-
-		it.effect("serves no other plain script than the SDK's two", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => script());
-				const panel = upstream(() => script());
-				for (const path of ["/_op//evil.example/x.js", "/_op/other.js", "/_op/op1.js.map"]) {
-					expect({
-						path,
-						status: status(yield* run(new Request(`${origin}${path}`), fake, panel)),
-					}).toEqual({ path, status: 404 });
-				}
-				expect(panel.calls).toHaveLength(0);
 			}),
 		);
 
@@ -366,73 +320,6 @@ describe("handle", () => {
 				yield* TestClock.adjust("5 seconds");
 				expect(status(yield* Fiber.join(fiber))).toBe(502);
 				expect(fake.calls).toHaveLength(1);
-			}),
-		);
-	});
-
-	describe("OpenPanel scripts", () => {
-		it.effect("serves and caches op1.js from the openpanel upstream", () =>
-			Effect.gen(function* () {
-				const fake = upstream(
-					() =>
-						new Response("console.log(1)", {
-							headers: { "content-type": "text/javascript" },
-						}),
-				);
-				const cache = memoryCache();
-				const target = `${origin}/_op/op1.js`;
-
-				const response = Option.getOrThrow(yield* run(new Request(target), undefined, fake, cache));
-				expect(yield* Effect.promise(() => response.text())).toBe("console.log(1)");
-				expect(fake.calls.map((call) => call.path)).toEqual(["/op1.js"]);
-				expect(response.headers.get("cache-control")).toBe("public, max-age=300");
-				expect([...cache.entries.keys()]).toEqual([target]);
-
-				yield* run(new Request(target), undefined, fake, cache);
-				expect(fake.calls).toHaveLength(1);
-			}),
-		);
-
-		it.effect("serves op1-replay.js from the openpanel upstream", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => script("console.log(2)"));
-				const response = Option.getOrThrow(
-					yield* run(new Request(`${origin}/_op/op1-replay.js`), undefined, fake),
-				);
-				expect(response.status).toBe(200);
-				expect(fake.calls.map((call) => call.path)).toEqual(["/op1-replay.js"]);
-			}),
-		);
-
-		it.effect("times out a script body that never finishes", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => script(new ReadableStream() as unknown as string));
-				const cache = memoryCache();
-				const fiber = yield* Effect.forkChild(
-					run(new Request(`${origin}/_op/op1.js`), undefined, fake, cache),
-				);
-				yield* TestClock.adjust("10 seconds");
-				expect(status(yield* Fiber.join(fiber))).toBe(502);
-				expect(fake.calls).toHaveLength(1);
-				expect(cache.entries.size).toBe(0);
-			}),
-		);
-
-		it.effect("answers 404 without OpenPanel configured", () =>
-			Effect.gen(function* () {
-				const fake = upstream(() => script());
-				expect(status(yield* run(new Request(`${origin}/_op/op1.js`), fake))).toBe(404);
-				expect(fake.calls).toHaveLength(0);
-			}),
-		);
-
-		it.effect("refuses a plain OpenPanel data request without calling any upstream", () =>
-			Effect.gen(function* () {
-				const sgtm = upstream(() => script());
-				const openpanel = upstream(() => new Response(null, { status: 204 }));
-				expect(status(yield* run(new Request(`${origin}/_op/track`), sgtm, openpanel))).toBe(404);
-				expect(sgtm.calls).toHaveLength(0);
-				expect(openpanel.calls).toHaveLength(0);
 			}),
 		);
 	});

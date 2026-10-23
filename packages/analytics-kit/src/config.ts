@@ -8,16 +8,13 @@ export type { UpstreamBinding, UpstreamInput } from "./upstream.js";
 
 /**
  * What a site passes in, usually straight from its Worker env. Every part is optional and turns
- * only itself off when missing, so previews and local development stay quiet while a site can run
- * the proxy without OpenPanel or without server-side GTM.
+ * only itself off when missing, so previews and local development stay quiet.
  */
 export interface AnalyticsOptions {
 	/** Id of the web container (`GTM-…`) whose `gtm.js` is loaded, not of the server container. */
 	readonly gtmId?: string | undefined;
 	/** Server-side GTM: a Workers VPC or service binding, or a base URL. */
 	readonly sgtm?: UpstreamInput | undefined;
-	/** OpenPanel: a Workers VPC or service binding, or a base URL of the instance. */
-	readonly openpanel?: UpstreamInput | undefined;
 }
 
 export interface ResolvedOptions {
@@ -27,12 +24,6 @@ export interface ResolvedOptions {
 	readonly warnings: readonly string[];
 }
 
-/** What a missing part costs, used in the one log line that says why it is off. */
-const CONSEQUENCE = {
-	sgtm: "the loader serves an empty script and /_sgtm answers 404",
-	openpanel: "/_op answers 404",
-} as const;
-
 export class ProxyConfig extends Context.Service<ProxyConfig, ResolvedOptions>()(
 	"@numoteq/analytics-kit-kit/proxy-config",
 ) {
@@ -41,20 +32,19 @@ export class ProxyConfig extends Context.Service<ProxyConfig, ResolvedOptions>()
 	}
 }
 
-/** Validates each part on its own; a broken OpenPanel does not take sGTM down with it. */
+/** Validates the proxy and the loader independently; a broken one does not take down the other. */
 export function resolveOptions(options: AnalyticsOptions): ResolvedOptions {
 	const gtmId = decodePart(GtmId, options.gtmId, "gtmId", "the loader serves an empty script");
-	const sgtm = decodePart(Upstream, options.sgtm, "sgtm", CONSEQUENCE.sgtm);
-	const openpanel = decodePart(Upstream, options.openpanel, "openpanel", CONSEQUENCE.openpanel);
+	const sgtm = decodePart(
+		Upstream,
+		options.sgtm,
+		"sgtm",
+		"the loader serves an empty script and /_sgtm answers 404",
+	);
 
 	return {
 		gtmId: Result.isSuccess(gtmId) ? gtmId.success : undefined,
-		upstreams: {
-			...(Result.isSuccess(sgtm) ? { sgtm: toTarget(sgtm.success) } : {}),
-			...(Result.isSuccess(openpanel) ? { openpanel: toTarget(openpanel.success) } : {}),
-		},
-		warnings: [gtmId, sgtm, openpanel].flatMap((part) =>
-			Result.isFailure(part) ? [part.failure] : [],
-		),
+		upstreams: Result.isSuccess(sgtm) ? { sgtm: toTarget(sgtm.success) } : {},
+		warnings: [gtmId, sgtm].flatMap((part) => (Result.isFailure(part) ? [part.failure] : [])),
 	};
 }
