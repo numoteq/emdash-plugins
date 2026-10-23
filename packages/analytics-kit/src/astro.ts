@@ -53,7 +53,7 @@ declare global {
 	}
 }
 
-const MIDDLEWARE_ID = "virtual:@numoteq/analytics/middleware";
+const MIDDLEWARE_ID = "virtual:@numoteq/analytics-kit/middleware";
 
 /**
  * The middleware is generated, so `cloudflare:workers` is only imported by the site's own build.
@@ -80,7 +80,7 @@ function middlewareSource(
 		.join("\n");
 
 	return `import { env } from "cloudflare:workers";
-import { createAnalytics } from "@numoteq/analytics";
+import { createAnalytics } from "@numoteq/analytics-kit";
 
 let instance;
 
@@ -133,14 +133,14 @@ export function analytics(options: AnalyticsAstroOptions = {}): AstroIntegration
 		options.serverEvents ?? {},
 	);
 	return {
-		name: "@numoteq/analytics",
+		name: "@numoteq/analytics-kit",
 		hooks: {
 			"astro:config:setup": ({ addMiddleware, updateConfig }) => {
 				updateConfig({
 					vite: {
 						plugins: [
 							{
-								name: "@numoteq/analytics",
+								name: "@numoteq/analytics-kit",
 								resolveId: (id) => (id === MIDDLEWARE_ID ? `\0${MIDDLEWARE_ID}` : undefined),
 								load: (id) => (id === `\0${MIDDLEWARE_ID}` ? source : undefined),
 							},

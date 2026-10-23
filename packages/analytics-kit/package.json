@@ -1,5 +1,5 @@
 {
-	"name": "@numoteq/analytics",
+	"name": "@numoteq/analytics-kit",
 	"version": "1.0.0",
 	"description": "First-party analytics for Cloudflare Workers and Astro: a proxy to self-hosted server-side Google Tag Manager and OpenPanel, server events through the Measurement Protocol, and a c15t preset",
 	"keywords": [
@@ -13,7 +13,7 @@
 		"server-side-tagging",
 		"sgtm"
 	],
-	"homepage": "https://github.com/numoteq/js-packages/tree/main/packages/analytics#readme",
+	"homepage": "https://github.com/numoteq/js-packages/tree/main/packages/analytics-kit#readme",
 	"bugs": {
 		"url": "https://github.com/numoteq/js-packages/issues"
 	},
@@ -26,7 +26,7 @@
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/numoteq/js-packages.git",
-		"directory": "packages/analytics"
+		"directory": "packages/analytics-kit"
 	},
 	"files": [
 		"dist",

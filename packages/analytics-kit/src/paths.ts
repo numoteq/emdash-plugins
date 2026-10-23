@@ -1,6 +1,6 @@
 /**
  * Browser-visible paths, derived from the site host so the page and the Worker agree without any
- * shared configuration. Dependency-free: `@numoteq/analytics/client` ships this file alone.
+ * shared configuration. Dependency-free: `@numoteq/analytics-kit/client` ships this file alone.
  */
 
 /**

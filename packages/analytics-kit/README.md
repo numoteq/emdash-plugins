@@ -1,4 +1,4 @@
-# `@numoteq/analytics`
+# `@numoteq/analytics-kit`
 
 First-party analytics plumbing for sites on Cloudflare Workers and Astro. One package, four parts:
 
@@ -10,7 +10,7 @@ First-party analytics plumbing for sites on Cloudflare Workers and Astro. One pa
 Built on [Effect](https://effect.website) v4. The core is configured at runtime, so one build serves production, previews and local development.
 
 ```sh
-pnpm add @numoteq/analytics effect
+pnpm add @numoteq/analytics-kit effect
 # Astro sites also: astro (6 or 7) and @astrojs/cloudflare (13 or 14)
 # c15t sites also: c15t @c15t/integrations
 ```
@@ -37,7 +37,7 @@ Each upstream is optional. A prefix without one answers `404` and the other pref
 
 ```js
 // astro.config.mjs
-import { analytics } from "@numoteq/analytics/astro";
+import { analytics } from "@numoteq/analytics-kit/astro";
 
 export default defineConfig({
 	integrations: [analytics() /* , emdash(), c15t(), … */],
@@ -77,19 +77,19 @@ analytics({
 Load the container from the path for the current host, for example as the script of a consent manager:
 
 ```ts
-import { loaderPath } from "@numoteq/analytics/client";
+import { loaderPath } from "@numoteq/analytics-kit/client";
 
 const src = loaderPath(location.host);
 ```
 
-`@numoteq/analytics/client` has no dependencies. Do not add `integrity` to the script: the loader is assembled per site and has no stable hash.
+`@numoteq/analytics-kit/client` has no dependencies. Do not add `integrity` to the script: the loader is assembled per site and has no stable hash.
 
 ### Other frameworks
 
 `createProxyHandler(options)` returns `(request: Request) => Promise<Response | null>`; `null` means the request belongs to the site. Create it once per isolate:
 
 ```ts
-import { createProxyHandler } from "@numoteq/analytics";
+import { createProxyHandler } from "@numoteq/analytics-kit";
 
 const handler = createProxyHandler({
 	gtmId: env.GTM_ID,
@@ -181,7 +181,7 @@ Without Effect, `createServerEvents(options)` returns `{ send(request, event, co
 
 ```ts
 import { Effect } from "effect";
-import { RequestContext, ServerEvents } from "@numoteq/analytics/server";
+import { RequestContext, ServerEvents } from "@numoteq/analytics-kit/server";
 
 const program = Effect.gen(function* () {
 	const events = yield* ServerEvents;
@@ -200,7 +200,7 @@ An event is sent once. No vendor downstream deduplicates a repeated event, and a
 
 ```js
 // astro.config.mjs
-import { c15tPreset } from "@numoteq/analytics/c15t";
+import { c15tPreset } from "@numoteq/analytics-kit/c15t";
 import { c15t } from "c15t/astro";
 
 export default defineConfig({
@@ -219,7 +219,7 @@ export default defineConfig({
 The container script belongs in the client entrypoint (`src/c15t.client.ts`), not in the serialized options, because it carries callbacks:
 
 ```ts
-import { gtmScripts } from "@numoteq/analytics/c15t";
+import { gtmScripts } from "@numoteq/analytics-kit/c15t";
 import type { C15tClientOptionsExtension } from "c15t/astro";
 
 export default {

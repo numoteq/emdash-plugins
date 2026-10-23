@@ -203,7 +203,7 @@ export class ServerEvents extends Context.Service<
 			event: ServerEvent,
 		) => Effect.Effect<void, ServerEventRejected | ServerEventUnavailable>;
 	}
->()("@numoteq/analytics/ServerEvents") {
+>()("@numoteq/analytics-kit-kit/server-events") {
 	static layer(settings: ServerEventsSettings): Layer.Layer<ServerEvents> {
 		return Layer.succeed(ServerEvents, {
 			send: (context, event) => requestOf(settings, context, event),

@@ -46,7 +46,7 @@ export interface UpstreamClient {
 export class Upstreams extends Context.Service<
 	Upstreams,
 	{ readonly get: (name: UpstreamName) => Option.Option<UpstreamClient> }
->()("@numoteq/analytics/Upstreams") {
+>()("@numoteq/analytics-kit-kit/upstreams") {
 	static layer(
 		upstreams: Partial<Record<UpstreamName, UpstreamBinding | URL>>,
 	): Layer.Layer<Upstreams> {
@@ -74,7 +74,7 @@ export class ResponseCache extends Context.Service<
 		readonly get: (key: string) => Effect.Effect<Option.Option<Response>>;
 		readonly put: (key: string, response: Response) => Effect.Effect<void>;
 	}
->()("@numoteq/analytics/ResponseCache") {
+>()("@numoteq/analytics-kit-kit/response-cache") {
 	/** The Workers Cache API; a no-op where it does not exist. Failures only cost a cache miss. */
 	static readonly workers: Layer.Layer<ResponseCache> = Layer.sync(ResponseCache, () => {
 		const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;

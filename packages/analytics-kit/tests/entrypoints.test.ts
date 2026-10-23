@@ -19,7 +19,7 @@ function importGraph(entry: URL, seen = new Map<string, string[]>()): Map<string
 	return seen;
 }
 
-describe("@numoteq/analytics/client", () => {
+describe("@numoteq/analytics-kit/client", () => {
 	it("imports nothing but its own files", () => {
 		const imports = [...importGraph(new URL("../src/client.ts", import.meta.url)).values()].flat();
 		expect(imports.filter((specifier) => !specifier.startsWith("."))).toEqual([]);
@@ -45,13 +45,13 @@ function setup(options?: Parameters<typeof analytics>[0]) {
 	return { order: middleware.order, resolved, source: plugin!.load(resolved)! };
 }
 
-describe("@numoteq/analytics/astro", () => {
+describe("@numoteq/analytics-kit/astro", () => {
 	it("adds generated middleware that runs before the site's own", () => {
 		const { order, resolved, source } = setup();
 		expect(order).toBe("pre");
 		expect(resolved.startsWith("\0")).toBe(true);
 		expect(source).toContain('import { env } from "cloudflare:workers";');
-		expect(source).toContain('import { createAnalytics } from "@numoteq/analytics";');
+		expect(source).toContain('import { createAnalytics } from "@numoteq/analytics-kit";');
 		expect(source).toContain('env["GTM_ID"]');
 		expect(source).toContain('env["SGTM_UPSTREAM"]');
 		expect(source).toContain('env["OPENPANEL_UPSTREAM"]');

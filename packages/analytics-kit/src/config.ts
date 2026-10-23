@@ -34,7 +34,7 @@ const CONSEQUENCE = {
 } as const;
 
 export class ProxyConfig extends Context.Service<ProxyConfig, ResolvedOptions>()(
-	"@numoteq/analytics/ProxyConfig",
+	"@numoteq/analytics-kit-kit/proxy-config",
 ) {
 	static layer(options: ResolvedOptions): Layer.Layer<ProxyConfig> {
 		return Layer.succeed(ProxyConfig, options);
