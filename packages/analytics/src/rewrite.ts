@@ -10,12 +10,13 @@ const COOKIE_ALLOW = /^(_ga|_gid|_gcl_|_fbp$|_fbc$|FPID$|FPLC$|FPAU$|FPGCL|FPGSI
 /** Never forwarded: credentials of the site and the hop-by-hop address chain we rebuild. */
 const DROPPED = new Set(["authorization", "proxy-authorization", "cookie", "x-forwarded-for"]);
 
-/** Address headers OpenPanel would trust, and a browser can spoof. */
+/** Address headers OpenPanel would trust, and a browser can spoof; only `clientIp` is re-set. */
 const ADDRESS_HEADERS = [
 	"openpanel-client-ip",
 	"true-client-ip",
 	"x-client-ip",
 	"x-real-ip",
+	"cf-connecting-ip",
 	"x-forwarded-for",
 ];
 

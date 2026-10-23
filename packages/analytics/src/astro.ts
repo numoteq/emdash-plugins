@@ -3,7 +3,7 @@ import type { AstroIntegration } from "astro";
 export interface ServerEventsAstroOptions {
 	/** Path of the Measurement Protocol client. Default `/mp/collect`. */
 	readonly path?: string;
-	/** Worker var with the GA4 measurement id (`G-…`). Unset, the hit carries no measurement id. */
+	/** Worker var with the GA4 measurement id (`G-…`). Unset, the event carries no `session_id`. */
 	readonly measurementIdVar?: string;
 	/** Worker var with the API secret for the GA4 forward. */
 	readonly apiSecretVar?: string;
@@ -26,7 +26,7 @@ export interface ServerEventUser {
 }
 
 export interface ServerEventOptions {
-	/** E-mail and phone, hashed here; the sender never forwards them as they came. */
+	/** E-mail and phone, hashed here and sent only with marketing consent. */
 	readonly user?: ServerEventUser;
 	/** Defaults to the page the visitor came from (`Referer`). */
 	readonly pageLocation?: string;
@@ -57,8 +57,8 @@ const MIDDLEWARE_ID = "virtual:@numoteq/analytics/middleware";
 
 /**
  * The middleware is generated, so `cloudflare:workers` is only imported by the site's own build.
- * The handler and the sender are created on the first request, where the env is guaranteed to
- * exist and one isolate keeps one of each.
+ * The client is created on the first request, where the env is guaranteed to exist and one isolate
+ * keeps one of it: the proxy and the sender share a single runtime.
  */
 function middlewareSource(
 	gtmIdVar: string,
@@ -66,30 +66,43 @@ function middlewareSource(
 	openpanelBinding: string,
 	serverEvents: ServerEventsAstroOptions,
 ): string {
-	const sender = `let events;
+	const settings = [
+		`path: ${JSON.stringify(serverEvents.path ?? "/mp/collect")},`,
+		serverEvents.measurementIdVar === undefined
+			? undefined
+			: `measurementId: env[${JSON.stringify(serverEvents.measurementIdVar)}],`,
+		serverEvents.apiSecretVar === undefined
+			? undefined
+			: `apiSecret: env[${JSON.stringify(serverEvents.apiSecretVar)}],`,
+	]
+		.filter((line) => line !== undefined)
+		.map((line) => `\t\t\t${line}`)
+		.join("\n");
 
-function sender() {
-	events ??= createServerEvents({
-		upstream: env[${JSON.stringify(sgtmBinding)}],
-		path: ${JSON.stringify(serverEvents.path ?? "/mp/collect")},${
-			serverEvents.measurementIdVar === undefined
-				? ""
-				: `
-		measurementId: env[${JSON.stringify(serverEvents.measurementIdVar)}],`
-		}${
-			serverEvents.apiSecretVar === undefined
-				? ""
-				: `
-		apiSecret: env[${JSON.stringify(serverEvents.apiSecretVar)}],`
-		}
+	return `import { env } from "cloudflare:workers";
+import { createAnalytics } from "@numoteq/analytics";
+
+let instance;
+
+function getClient() {
+	instance ??= createAnalytics({
+		gtmId: env[${JSON.stringify(gtmIdVar)}],
+		sgtm: env[${JSON.stringify(sgtmBinding)}],
+		openpanel: env[${JSON.stringify(openpanelBinding)}],
+		serverEvents: {
+${settings}
+		},
 	});
-	return events;
+	return instance;
 }
-`;
+
+export async function onRequest(context, next) {
+	const client = getClient();
+	const handled = await client.handle(context.request);
+	if (handled) return handled;
 
 	// Consent is read per event: c15t's middleware runs after this one, so nothing is in
-	// `locals.c15t` yet when the handler is built.
-	const locals = `	const client = sender();
+	// \`locals.c15t\` yet when the client is built.
 	context.locals.analytics = {
 		event(name, params, options) {
 			const sent = client.send(
@@ -101,22 +114,7 @@ function sender() {
 			return sent;
 		},
 	};
-`;
 
-	return `import { env } from "cloudflare:workers";
-import { createProxyHandler, createServerEvents } from "@numoteq/analytics";
-
-let proxy;
-${sender}
-export async function onRequest(context, next) {
-	proxy ??= createProxyHandler({
-		gtmId: env[${JSON.stringify(gtmIdVar)}],
-		sgtm: env[${JSON.stringify(sgtmBinding)}],
-		openpanel: env[${JSON.stringify(openpanelBinding)}],
-	});
-	const handled = await proxy(context.request);
-	if (handled) return handled;
-${locals}
 	return next();
 }
 `;

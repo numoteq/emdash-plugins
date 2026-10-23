@@ -77,6 +77,15 @@ function fbclidOf(referer: string | undefined): string | undefined {
 	}
 }
 
+/**
+ * The session cookie of a GA4 stream: `G-ABC123` names `_ga_ABC123`, the id without its prefix.
+ * Other prefixes are left as they are, so an id we do not understand yields no match rather than
+ * somebody else's cookie. A GA4 `cookie_prefix` renames all of these; such a site gets none.
+ */
+export function sessionCookieName(measurementId: string): string {
+	return `_ga_${measurementId.replace(/^G-/, "")}`;
+}
+
 function ipOf(request: Request): string | undefined {
 	const forwarded = request.headers.get("cf-connecting-ip");
 	if (forwarded) return forwarded;
@@ -88,21 +97,24 @@ function ipOf(request: Request): string | undefined {
  * Reads the visitor's identifiers, address and consent off the request. Call this at the moment
  * the event happens, not when the handler is built: the consent middleware of c15t runs later and
  * the cookies are whatever the browser sent with this request.
+ *
+ * `measurementId` picks the session cookie; without it there is no `session_id`, because guessing
+ * from the first `_ga_*` cookie of another property would attach the event to a stranger's session.
  */
-export function fromRequest(request: Request, consent: Consent = {}): RequestContext {
+export function fromRequest(
+	request: Request,
+	consent: Consent = {},
+	measurementId?: string,
+): RequestContext {
 	const jar = cookies(request.headers.get("cookie"));
 	const referer = request.headers.get("referer") ?? undefined;
 	const ga = jar.get("_ga");
-	let sessionCookie: string | undefined;
-	for (const [name, value] of jar) {
-		if (name.startsWith("_ga_")) {
-			sessionCookie = value;
-			break;
-		}
-	}
 	return {
 		clientId: clientIdOf(ga),
-		sessionId: sessionIdOf(sessionCookie),
+		sessionId:
+			measurementId === undefined
+				? undefined
+				: sessionIdOf(jar.get(sessionCookieName(measurementId))),
 		ip: ipOf(request),
 		userAgent: request.headers.get("user-agent") ?? undefined,
 		pageLocation: referer,

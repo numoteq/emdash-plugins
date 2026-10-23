@@ -17,10 +17,17 @@ export const PREFIX = {
 export type UpstreamName = keyof typeof PREFIX;
 
 /** Every prefix, in the order the shim checks them. */
-export const PREFIXES: readonly string[] = Object.values(PREFIX);
+export const PREFIXES: readonly (typeof PREFIX)[UpstreamName][] = Object.values(PREFIX);
 
 export const SGTM_PREFIX = PREFIX.sgtm;
 export const OPENPANEL_PREFIX = PREFIX.openpanel;
+
+/**
+ * The OpenPanel scripts served in the clear, at fixed paths the site can put in a Custom HTML tag.
+ * They are not encoded because the SDK derives `op1-replay.js` by rewriting the `src` of `op1.js`,
+ * and a token carries no filename. The shim and the Worker share this list.
+ */
+export const OPENPANEL_SCRIPTS = ["/_op/op1.js", "/_op/op1-replay.js"] as const;
 
 /** Mixed into the hash. Changing it moves every site to new paths. */
 const LABEL = "analytics/1";

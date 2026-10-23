@@ -1,6 +1,17 @@
-import { Context, Duration, Effect, Layer, Logger, ManagedRuntime, Result, Schema } from "effect";
+import {
+	Cause,
+	Clock,
+	Context,
+	Duration,
+	Effect,
+	Layer,
+	Logger,
+	ManagedRuntime,
+	Result,
+	Schema,
+} from "effect";
 
-import { decodePart, Upstream } from "../schema.js";
+import { decodePart, optionalPart, Upstream } from "../schema.js";
 import { callUpstream, toTarget, type UpstreamInput, type UpstreamTarget } from "../upstream.js";
 import { RequestContext, type Consent } from "./context.js";
 
@@ -8,13 +19,24 @@ import { RequestContext, type Consent } from "./context.js";
 const DEFAULT_PATH = "/mp/collect";
 const DEFAULT_TIMEOUT = Duration.seconds(5);
 
+const MeasurementId = Schema.String.check(
+	Schema.isPattern(/^G-[A-Z0-9]+$/, { expected: "a GA4 measurement id (G-…)" }),
+);
+
+const ClientPath = Schema.String.check(
+	Schema.makeFilter((value) => value.startsWith("/") && !value.startsWith("//"), {
+		expected: "a path starting with a single /",
+	}),
+);
+
 /** One server-originated event. Enrichment from the request is added by the sender. */
 export interface ServerEvent {
 	readonly name: string;
 	readonly params?: Readonly<Record<string, unknown>> | undefined;
 	/**
-	 * Plain values, hashed here before they leave the Worker: the helper never sends an e-mail or
-	 * a phone number as it got it.
+	 * Plain values, hashed here before they leave the Worker. Sent only with marketing consent:
+	 * the helper never sends an e-mail or a phone number as it got it, nor keeps a hashed profile
+	 * of a visitor who did not allow it.
 	 */
 	readonly user?: { readonly email?: string; readonly phone?: string } | undefined;
 	/** Defaults to the page the visitor came from (`Referer`). */
@@ -26,7 +48,10 @@ export interface ServerEventsOptions {
 	readonly upstream?: UpstreamInput | undefined;
 	/** Path of the Measurement Protocol client. Default `/mp/collect`. */
 	readonly path?: string | undefined;
-	/** GA4 measurement id (`G-…`); the container only passes it on to Google. */
+	/**
+	 * GA4 measurement id (`G-…`). Selects the `_ga_<id>` session cookie and is passed on to Google
+	 * when a GA4 tag forwards the hit. Without it the event carries no `session_id`.
+	 */
 	readonly measurementId?: string | undefined;
 	/** API secret for that forward. The self-hosted container accepts any value itself. */
 	readonly apiSecret?: string | undefined;
@@ -79,32 +104,57 @@ async function userDataOf(user: ServerEvent["user"]): Promise<Record<string, str
 	return Object.keys(data).length === 0 ? undefined : data;
 }
 
-async function payloadOf(
-	context: RequestContext,
-	event: ServerEvent,
-): Promise<Record<string, unknown>> {
-	const params: Record<string, unknown> = { ...event.params };
-	const pageLocation = event.pageLocation ?? context.pageLocation;
-	if (pageLocation !== undefined) params["page_location"] = pageLocation;
-	if (context.sessionId !== undefined) params["session_id"] = context.sessionId;
-	if (context.fbp !== undefined) params["_fbp"] = context.fbp;
-	if (context.fbc !== undefined) params["_fbc"] = context.fbc;
+/** The promise of hashes, which needs Web Crypto; a platform without it is a typed failure. */
+const hashUser = (user: ServerEvent["user"]) =>
+	user === undefined
+		? Effect.succeed<Record<string, string> | undefined>(undefined)
+		: Effect.tryPromise({
+				try: () => userDataOf(user),
+				catch: (cause) => new ServerEventUnavailable({ reason: "hashing failed", cause }),
+			});
 
-	const userData = await userDataOf(event.user);
-	const marketing = context.consent.marketing === true;
-	return {
-		client_id: context.clientId ?? crypto.randomUUID(),
-		timestamp_micros: Date.now() * 1000,
-		events: [{ name: event.name, params }],
-		consent: {
-			ad_user_data: marketing ? "GRANTED" : "DENIED",
-			ad_personalization: marketing ? "GRANTED" : "DENIED",
-		},
-		...(userData === undefined ? {} : { user_data: userData }),
-		...(context.ip === undefined ? {} : { ip_override: context.ip }),
-		...(context.userAgent === undefined ? {} : { user_agent: context.userAgent }),
-	};
-}
+/**
+ * The Measurement Protocol body. `page_location` describes the visit; `client_id`, `session_id`,
+ * `_fbp`/`_fbc` and `user_data` are the visitor's identifiers. They travel only with the consent
+ * they belong to: analytics storage for the GA cookies, marketing for the Meta ones and for the
+ * hashes, because a hashed e-mail is still personal data.
+ */
+const payloadOf = (context: RequestContext, event: ServerEvent) =>
+	Effect.gen(function* () {
+		const now = yield* Clock.currentTimeMillis;
+		const marketing = context.consent.marketing === true;
+
+		const measurement = context.consent.measurement === true;
+		const params: Record<string, unknown> = { ...event.params };
+		// Params of the event must not smuggle an identifier past the consent checks below.
+		delete params["session_id"];
+		delete params["_fbp"];
+		delete params["_fbc"];
+
+		const pageLocation = event.pageLocation ?? context.pageLocation;
+		if (pageLocation !== undefined) params["page_location"] = pageLocation;
+		if (measurement && context.sessionId !== undefined) params["session_id"] = context.sessionId;
+		if (marketing) {
+			if (context.fbp !== undefined) params["_fbp"] = context.fbp;
+			if (context.fbc !== undefined) params["_fbc"] = context.fbc;
+		}
+
+		const userData = marketing ? yield* hashUser(event.user) : undefined;
+
+		return {
+			// The cookies of analytics storage: a stale `_ga` after a withdrawal is not consent.
+			client_id: (measurement ? context.clientId : undefined) ?? crypto.randomUUID(),
+			timestamp_micros: now * 1000,
+			events: [{ name: event.name, params }],
+			consent: {
+				ad_user_data: marketing ? "GRANTED" : "DENIED",
+				ad_personalization: marketing ? "GRANTED" : "DENIED",
+			},
+			...(userData === undefined ? {} : { user_data: userData }),
+			...(context.ip === undefined ? {} : { ip_override: context.ip }),
+			...(context.userAgent === undefined ? {} : { user_agent: context.userAgent }),
+		};
+	});
 
 function queryOf(settings: ServerEventsSettings, context: RequestContext): string {
 	const query = new URLSearchParams();
@@ -121,33 +171,28 @@ const timeout = (duration: Duration.Duration) =>
 	});
 
 /** Builds and sends one hit. Sent once: no vendor downstream deduplicates a repeated event. */
-function requestOf(
+const requestOf = Effect.fn("analytics.serverEvent")(function* (
 	settings: ServerEventsSettings,
 	context: RequestContext,
 	event: ServerEvent,
-): Effect.Effect<void, ServerEventRejected | ServerEventUnavailable> {
-	return Effect.gen(function* () {
-		const body = yield* Effect.promise(() => payloadOf(context, event));
-		const path = `${settings.path}?${queryOf(settings, context)}`;
-		const response = yield* Effect.tryPromise({
-			try: (signal) =>
-				callUpstream(settings.target, path, {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(body),
-					signal,
-				}),
-			catch: (cause) => new ServerEventUnavailable({ reason: "sgtm fetch failed", cause }),
-		}).pipe(timeout(settings.timeout));
+) {
+	const body = yield* payloadOf(context, event);
+	const path = `${settings.path}?${queryOf(settings, context)}`;
+	const response = yield* Effect.tryPromise({
+		try: (signal) =>
+			callUpstream(settings.target, path, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+				signal,
+			}),
+		catch: (cause) => new ServerEventUnavailable({ reason: "sgtm fetch failed", cause }),
+	}).pipe(timeout(settings.timeout));
 
-		if (response.ok) return;
-		const detail = yield* Effect.promise(() => response.text().catch(() => ""));
-		return yield* new ServerEventRejected({
-			status: response.status,
-			detail: detail.slice(0, 200),
-		});
-	});
-}
+	if (response.ok) return;
+	const detail = yield* Effect.promise(() => response.text().catch(() => ""));
+	return yield* new ServerEventRejected({ status: response.status, detail: detail.slice(0, 200) });
+});
 
 /** Sends server-originated events to the Measurement Protocol client of our sGTM. */
 export class ServerEvents extends Context.Service<
@@ -166,30 +211,59 @@ export class ServerEvents extends Context.Service<
 	}
 }
 
-/** `send` for code that already has its services. */
-export const send = (context: RequestContext, event: ServerEvent) =>
-	Effect.flatMap(ServerEvents, (events) => events.send(context, event));
-
-/** Validates the options; the failure is a readable description of what is missing or wrong. */
+/**
+ * Validates the options; the failure is a readable description of what is missing or wrong.
+ * `label` names the upstream in that message: the proxy says `sgtm`, a standalone sender `upstream`.
+ */
 export function resolveServerEventsOptions(
 	options: ServerEventsOptions = {},
+	label = "upstream",
 ): Result.Result<ServerEventsSettings, string> {
-	const warnings: string[] = [];
-	const upstream = decodePart(Upstream, options.upstream, "upstream", "no event is sent", warnings);
-	if (upstream === undefined) return Result.fail(warnings.join("; "));
+	const upstream = decodePart(Upstream, options.upstream, label, "no event is sent");
+	const measurementId = optionalPart(
+		MeasurementId,
+		options.measurementId,
+		"measurementId",
+		"no session_id is read and Google receives no measurement id",
+	);
+	const path = optionalPart(ClientPath, options.path, "path", "no event is sent");
+
+	if (Result.isFailure(upstream)) return Result.fail(upstream.failure);
+	if (Result.isFailure(measurementId)) return Result.fail(measurementId.failure);
+	if (Result.isFailure(path)) return Result.fail(path.failure);
 	return Result.succeed({
-		target: toTarget(upstream),
-		path: options.path ?? DEFAULT_PATH,
-		measurementId: options.measurementId,
+		target: toTarget(upstream.success),
+		path: path.success ?? DEFAULT_PATH,
+		measurementId: measurementId.success,
 		apiSecret: options.apiSecret,
 		timeout: options.timeout ?? DEFAULT_TIMEOUT,
 	});
 }
 
-/** The promise face of {@link send}: reads the request, sends in the background, never throws. */
+/** The promise face of the sender: reads the request, sends, never throws. */
 export interface ServerEventsClient {
 	send(request: Request, event: ServerEvent, consent?: Consent): Promise<void>;
 }
+
+/**
+ * `ServerEvents.send` for code outside Effect: reads the request, sends, logs a failure and
+ * resolves. Shared by `createServerEvents` and the combined client.
+ */
+export const promiseSender =
+	(
+		runtime: ManagedRuntime.ManagedRuntime<ServerEvents, never>,
+		measurementId: string | undefined,
+	): ServerEventsClient["send"] =>
+	(request, event, consent) =>
+		runtime.runPromise(
+			ServerEvents.use((events) =>
+				events.send(RequestContext.fromRequest(request, consent, measurementId), event),
+			).pipe(
+				Effect.catchCause((cause) =>
+					Effect.logWarning(`analytics server event dropped: ${Cause.pretty(cause)}`),
+				),
+			),
+		);
 
 const logger = Logger.layer([Logger.consoleJson]);
 
@@ -209,15 +283,7 @@ export function createServerEvents(options: ServerEventsOptions = {}): ServerEve
 		return { send: () => Promise.resolve() };
 	}
 
-	const runtime = ManagedRuntime.make(Layer.mergeAll(ServerEvents.layer(resolved.success), logger));
-	return {
-		send: (request, event, consent) =>
-			runtime.runPromise(
-				send(RequestContext.fromRequest(request, consent), event).pipe(
-					Effect.catchCause((cause) =>
-						Effect.logWarning(`analytics server event dropped: ${String(cause)}`),
-					),
-				),
-			),
-	};
+	const settings = resolved.success;
+	const runtime = ManagedRuntime.make(Layer.mergeAll(ServerEvents.layer(settings), logger));
+	return { send: promiseSender(runtime, settings.measurementId) };
 }

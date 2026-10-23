@@ -1,8 +1,8 @@
-import { Context, Layer } from "effect";
+import { Context, Layer, Result } from "effect";
 
 import { type UpstreamName } from "./paths.js";
 import { decodePart, GtmId, Upstream } from "./schema.js";
-import { toTarget, type UpstreamBinding, type UpstreamInput } from "./upstream.js";
+import { toTarget, type UpstreamInput, type UpstreamTarget } from "./upstream.js";
 
 export type { UpstreamBinding, UpstreamInput } from "./upstream.js";
 
@@ -22,16 +22,16 @@ export interface AnalyticsOptions {
 
 export interface ResolvedOptions {
 	readonly gtmId: string | undefined;
-	readonly upstreams: Partial<Record<UpstreamName, UpstreamBinding | URL>>;
+	readonly upstreams: Partial<Record<UpstreamName, UpstreamTarget>>;
 	/** Why a part is off, in plain language; logged once when the proxy is created. */
 	readonly warnings: readonly string[];
 }
 
 /** What a missing part costs, used in the one log line that says why it is off. */
-const CONSEQUENCE: Record<UpstreamName, string> = {
+const CONSEQUENCE = {
 	sgtm: "the loader serves an empty script and /_sgtm answers 404",
 	openpanel: "/_op answers 404",
-};
+} as const;
 
 export class ProxyConfig extends Context.Service<ProxyConfig, ResolvedOptions>()(
 	"@numoteq/analytics/ProxyConfig",
@@ -43,25 +43,18 @@ export class ProxyConfig extends Context.Service<ProxyConfig, ResolvedOptions>()
 
 /** Validates each part on its own; a broken OpenPanel does not take sGTM down with it. */
 export function resolveOptions(options: AnalyticsOptions): ResolvedOptions {
-	const warnings: string[] = [];
-	const gtmId = decodePart(
-		GtmId,
-		options.gtmId,
-		"gtmId",
-		"the loader serves an empty script",
-		warnings,
-	);
+	const gtmId = decodePart(GtmId, options.gtmId, "gtmId", "the loader serves an empty script");
+	const sgtm = decodePart(Upstream, options.sgtm, "sgtm", CONSEQUENCE.sgtm);
+	const openpanel = decodePart(Upstream, options.openpanel, "openpanel", CONSEQUENCE.openpanel);
 
-	const upstreams: Partial<Record<UpstreamName, UpstreamBinding | URL>> = {};
-	const inputs: Record<UpstreamName, UpstreamInput | undefined> = {
-		sgtm: options.sgtm,
-		openpanel: options.openpanel,
+	return {
+		gtmId: Result.isSuccess(gtmId) ? gtmId.success : undefined,
+		upstreams: {
+			...(Result.isSuccess(sgtm) ? { sgtm: toTarget(sgtm.success) } : {}),
+			...(Result.isSuccess(openpanel) ? { openpanel: toTarget(openpanel.success) } : {}),
+		},
+		warnings: [gtmId, sgtm, openpanel].flatMap((part) =>
+			Result.isFailure(part) ? [part.failure] : [],
+		),
 	};
-	for (const name of Object.keys(CONSEQUENCE) as UpstreamName[]) {
-		const upstream = decodePart(Upstream, inputs[name], name, CONSEQUENCE[name], warnings);
-		if (upstream === undefined) continue;
-		upstreams[name] = toTarget(upstream);
-	}
-
-	return { gtmId, upstreams, warnings };
 }

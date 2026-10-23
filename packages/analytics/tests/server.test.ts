@@ -1,15 +1,21 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Result } from "effect";
+import { describe, expect, it, vi } from "@effect/vitest";
+import { Duration, Effect, Fiber, Result } from "effect";
+import { TestClock } from "effect/testing";
 
-import { clientIdOf, fromRequest, RequestContext, sessionIdOf } from "../src/server/context.js";
+import {
+	clientIdOf,
+	fromRequest,
+	RequestContext,
+	sessionCookieName,
+	sessionIdOf,
+} from "../src/server/context.js";
 import type { Consent } from "../src/server/context.js";
 import {
 	createServerEvents,
 	gcsOf,
 	resolveServerEventsOptions,
-	send,
 	ServerEventRejected,
 	ServerEvents,
 	ServerEventUnavailable,
@@ -54,13 +60,14 @@ describe("fromRequest", () => {
 		const context = fromRequest(
 			apiRequest({
 				cookie:
-					"_ga=GA1.1.123.456; _ga_ABC=GS1.1.1730000000.3.1.1730000300.0.0.0; " +
+					"_ga=GA1.1.123.456; _ga_WSNXXNBYV7=GS1.1.1730000000.3.1.1730000300.0.0.0; " +
 					"_fbp=fb.1.1730000000.1; _fbc=fb.1.1730000000.xyz",
 				"cf-connecting-ip": "203.0.113.9",
 				"user-agent": "Mozilla/5.0",
 				referer: "https://site.example/sluzby?utm_source=x",
 			}),
 			{ measurement: true },
+			"G-WSNXXNBYV7",
 		);
 
 		expect(context).toEqual({
@@ -92,6 +99,38 @@ describe("fromRequest", () => {
 		expect(context.pageLocation).toBe("not a url");
 		expect(context.clientId).toBeUndefined();
 		expect(context.consent).toEqual({});
+	});
+});
+
+describe("sessionCookieName", () => {
+	it("names the cookie after the GA4 id without its prefix", () => {
+		expect(sessionCookieName("G-WSNXXNBYV7")).toBe("_ga_WSNXXNBYV7");
+	});
+
+	it("leaves an id it does not understand unmatched", () => {
+		expect(sessionCookieName("S-ABC")).toBe("_ga_S-ABC");
+		expect(sessionCookieName("AW-123")).toBe("_ga_AW-123");
+	});
+});
+
+const sessionContext = (cookie: string, measurementId?: string) =>
+	fromRequest(new Request("https://site.example/api", { headers: { cookie } }), {}, measurementId);
+
+describe("fromRequest session cookie", () => {
+	it("takes the cookie of the configured stream, not the first one", () => {
+		const value = sessionContext(
+			"_ga_OTHER=GS1.1.111.1.0.111.0.0.0; _ga_WSNXXNBYV7=GS1.1.222.1.0.222.0.0.0",
+			"G-WSNXXNBYV7",
+		);
+
+		expect(value.sessionId).toBe("222");
+	});
+
+	it("sends no session id rather than another property's", () => {
+		expect(
+			sessionContext("_ga_OTHER=GS1.1.111.1.0.111.0.0.0", "G-WSNXXNBYV7").sessionId,
+		).toBeUndefined();
+		expect(sessionContext("_ga_WSNXXNBYV7=GS1.1.222.1.0.222.0.0.0").sessionId).toBeUndefined();
 	});
 });
 
@@ -141,17 +180,20 @@ const settings = (
 	...overrides,
 });
 
+const MEASUREMENT_ID = "G-WSNXXNBYV7";
+
 const CONTEXT = RequestContext.fromRequest(
 	new Request("https://site.example/api/contact", {
 		method: "POST",
 		headers: {
-			cookie: "_ga=GA1.1.123.456; _ga_ABC=GS1.1.1730000000.3.1.1730000300.0.0.0; _fbp=fb.1.1.1",
+			cookie: `_ga=GA1.1.123.456; ${sessionCookieName(MEASUREMENT_ID)}=GS1.1.1730000000.3.1.1730000300.0.0.0; _fbp=fb.1.1.1`,
 			"cf-connecting-ip": "203.0.113.9",
 			"user-agent": "Mozilla/5.0",
 			referer: "https://site.example/sluzby",
 		},
 	}),
 	{ measurement: true, marketing: true },
+	MEASUREMENT_ID,
 );
 
 const LEAD: ServerEvent = {
@@ -165,7 +207,11 @@ const run = (
 	event: ServerEvent,
 	context = CONTEXT,
 	overrides: Partial<ServerEventsSettings> = {},
-) => Effect.provide(send(context, event), ServerEvents.layer(settings(fake, overrides)));
+) =>
+	Effect.provide(
+		ServerEvents.use((events) => events.send(context, event)),
+		ServerEvents.layer(settings(fake, overrides)),
+	);
 
 describe("send", () => {
 	it.effect("posts a Measurement Protocol hit with enrichment and hashed user data", () =>
@@ -216,7 +262,7 @@ describe("send", () => {
 			const body = JSON.parse(fake.calls[0]!.body);
 			expect(body.client_id).toMatch(/^[0-9a-f-]{36}$/);
 			expect(body.events[0].params.page_location).toBeUndefined();
-			expect(body.events[0].params.session_id).toBeUndefined();
+			expect(body.events[0].params["session_id"]).toBeUndefined();
 			expect(body.consent).toEqual({ ad_user_data: "DENIED", ad_personalization: "DENIED" });
 			expect(fake.calls[0]!.path).toContain("gcs=G100");
 		}),
@@ -246,16 +292,90 @@ describe("send", () => {
 		}),
 	);
 
-	it("times out with ServerEventUnavailable and does not retry", async () => {
-		const fake = upstream(() => "hang");
-		const error = await Effect.runPromise(
-			Effect.flip(run(fake, LEAD, CONTEXT, { timeout: Duration.millis(100) })),
-		);
+	it.effect("times out with ServerEventUnavailable and does not retry", () =>
+		Effect.gen(function* () {
+			const fake = upstream(() => "hang");
+			const fiber = yield* Effect.forkChild(Effect.flip(run(fake, { name: "generate_lead" })));
+			yield* TestClock.adjust("5 seconds");
+			const error = yield* Fiber.join(fiber);
 
-		expect(error).toBeInstanceOf(ServerEventUnavailable);
-		expect((error as ServerEventUnavailable).reason).toBe("timeout");
-		expect(fake.calls).toHaveLength(1);
-	});
+			expect(error).toBeInstanceOf(ServerEventUnavailable);
+			expect((error as ServerEventUnavailable).reason).toBe("timeout");
+			expect(fake.calls).toHaveLength(1);
+		}),
+	);
+
+	it.effect("sends no identifiers and no hashes without their consent", () =>
+		Effect.gen(function* () {
+			const fake = upstream(() => new Response(null, { status: 204 }));
+			const context = RequestContext.fromRequest(
+				new Request("https://site.example/api/contact", {
+					headers: {
+						cookie: `_ga=GA1.1.123.456; ${sessionCookieName(MEASUREMENT_ID)}=GS1.1.1730000000.3.1.1730000300.0.0.0; _fbp=fb.1.1.1`,
+					},
+				}),
+				{},
+				MEASUREMENT_ID,
+			);
+
+			yield* run(fake, LEAD, context);
+
+			const body = JSON.parse(fake.calls[0]!.body);
+			expect(body.user_data).toBeUndefined();
+			expect(body.client_id).toMatch(/^[0-9a-f-]{36}$/);
+			expect(body.events[0].params["session_id"]).toBeUndefined();
+			expect(body.events[0].params["_fbp"]).toBeUndefined();
+			expect(body.events[0].params["_fbc"]).toBeUndefined();
+			expect(fake.calls[0]!.path).toContain("gcs=G100");
+		}),
+	);
+
+	it.effect("keeps the GA identifiers and drops the Meta ones without marketing consent", () =>
+		Effect.gen(function* () {
+			const fake = upstream(() => new Response(null, { status: 204 }));
+			const context = RequestContext.fromRequest(
+				new Request("https://site.example/api/contact", {
+					headers: {
+						cookie: `_ga=GA1.1.123.456; ${sessionCookieName(MEASUREMENT_ID)}=GS1.1.1730000000.3.1.1730000300.0.0.0; _fbp=fb.1.1.1`,
+					},
+				}),
+				{ measurement: true },
+				MEASUREMENT_ID,
+			);
+
+			yield* run(fake, LEAD, context);
+
+			const body = JSON.parse(fake.calls[0]!.body);
+			expect(body.client_id).toBe("123.456");
+			expect(body.events[0].params["session_id"]).toBe("1730000000");
+			expect(body.events[0].params["_fbp"]).toBeUndefined();
+			expect(body.user_data).toBeUndefined();
+			expect(fake.calls[0]!.path).toContain("gcs=G101");
+		}),
+	);
+
+	it.effect("does not let the event params smuggle a gated identifier", () =>
+		Effect.gen(function* () {
+			const fake = upstream(() => new Response(null, { status: 204 }));
+			const context = RequestContext.fromRequest(
+				new Request("https://site.example/api/contact"),
+				{},
+				MEASUREMENT_ID,
+			);
+
+			yield* run(
+				fake,
+				{
+					name: "generate_lead",
+					params: { form_id: "contact", session_id: "999", _fbp: "fb.1.1.1", _fbc: "fb.1.1.2" },
+				},
+				context,
+			);
+
+			const params = JSON.parse(fake.calls[0]!.body).events[0].params;
+			expect(params).toEqual({ form_id: "contact" });
+		}),
+	);
 
 	it.effect("turns a connection failure into ServerEventUnavailable", () =>
 		Effect.gen(function* () {
@@ -275,6 +395,19 @@ describe("send", () => {
 });
 
 describe("resolveServerEventsOptions", () => {
+	it("rejects a measurement id that is not a GA4 one, and a path without /", () => {
+		const binding = { fetch: async () => new Response(null, { status: 204 }) };
+
+		for (const options of [
+			{ upstream: binding, measurementId: "GT-123" },
+			{ upstream: binding, path: "mp/collect" },
+			{ upstream: binding, path: "//evil.example/x" },
+		]) {
+			const resolved = resolveServerEventsOptions(options);
+			expect(Result.isFailure(resolved)).toBe(true);
+		}
+	});
+
 	it("uses the default path and needs an upstream", () => {
 		expect(Result.isFailure(resolveServerEventsOptions({}))).toBe(true);
 
@@ -287,10 +420,16 @@ describe("resolveServerEventsOptions", () => {
 });
 
 describe("createServerEvents", () => {
-	it.effect("never throws and drops events without an upstream", () =>
+	it.effect("logs why and drops events without an upstream", () =>
 		Effect.gen(function* () {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
 			const client = createServerEvents({});
+
 			yield* Effect.promise(() => client.send(new Request("https://site.example/"), LEAD));
+
+			expect(log).toHaveBeenCalledTimes(1);
+			expect(String(log.mock.calls[0]![0])).toContain("analytics server events disabled");
+			log.mockRestore();
 		}),
 	);
 

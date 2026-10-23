@@ -96,7 +96,7 @@ describe("upstreamHeaders", () => {
 		expect(Object.fromEntries(headers)).toEqual({
 			"cf-ray": "1",
 			"cf-ipcountry": "CZ",
-			"cf-connecting-ip": "203.0.113.9",
+			// The address headers are dropped and only the trusted one is set again.
 			"openpanel-client-ip": "203.0.113.9",
 			"user-agent": "test",
 			"x-forwarded-for": "203.0.113.9",

@@ -192,6 +192,16 @@ describe("handle", () => {
 			}),
 		);
 
+		it.effect("times out a body that never finishes", () =>
+			Effect.gen(function* () {
+				const fake = upstream(() => script(new ReadableStream() as unknown as string));
+				const fiber = yield* Effect.forkChild(run(new Request(`${origin}${loader}`), fake));
+				yield* TestClock.adjust("1 minute");
+				expect(status(yield* Fiber.join(fiber))).toBe(502);
+				expect(fake.calls).toHaveLength(3);
+			}),
+		);
+
 		it.effect("passes a 4xx through uncached", () =>
 			Effect.gen(function* () {
 				const cache = memoryCache();
@@ -391,6 +401,20 @@ describe("handle", () => {
 				);
 				expect(response.status).toBe(200);
 				expect(fake.calls.map((call) => call.path)).toEqual(["/op1-replay.js"]);
+			}),
+		);
+
+		it.effect("times out a script body that never finishes", () =>
+			Effect.gen(function* () {
+				const fake = upstream(() => script(new ReadableStream() as unknown as string));
+				const cache = memoryCache();
+				const fiber = yield* Effect.forkChild(
+					run(new Request(`${origin}/_op/op1.js`), undefined, fake, cache),
+				);
+				yield* TestClock.adjust("10 seconds");
+				expect(status(yield* Fiber.join(fiber))).toBe(502);
+				expect(fake.calls).toHaveLength(1);
+				expect(cache.entries.size).toBe(0);
 			}),
 		);
 

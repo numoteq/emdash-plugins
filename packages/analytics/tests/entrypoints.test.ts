@@ -51,11 +51,13 @@ describe("@numoteq/analytics/astro", () => {
 		expect(order).toBe("pre");
 		expect(resolved.startsWith("\0")).toBe(true);
 		expect(source).toContain('import { env } from "cloudflare:workers";');
-		expect(source).toContain("createProxyHandler");
+		expect(source).toContain('import { createAnalytics } from "@numoteq/analytics";');
 		expect(source).toContain('env["GTM_ID"]');
 		expect(source).toContain('env["SGTM_UPSTREAM"]');
 		expect(source).toContain('env["OPENPANEL_UPSTREAM"]');
-		expect(source).toContain("createServerEvents");
+		expect(source).toContain("createAnalytics(");
+		expect(source).toContain("client.handle(context.request)");
+		expect(source).toContain("client.send(");
 		expect(source).toContain("context.locals.cfContext?.waitUntil(sent)");
 		expect(source).toContain("context.locals.analytics");
 		expect(source).toContain("context.locals.c15t?.snapshot?.effectivePermissions");
@@ -76,6 +78,14 @@ describe("@numoteq/analytics/astro", () => {
 		const { source } = setup();
 
 		expect(source).toContain("{ name, params, ...options }");
+	});
+
+	it("creates the client once per isolate, for both halves", () => {
+		const { source } = setup();
+
+		expect(source).toContain("let instance;");
+		expect(source).toContain("instance ??= createAnalytics(");
+		expect(source.match(/createAnalytics\(/g)).toHaveLength(1);
 	});
 
 	it("passes server event options through", () => {

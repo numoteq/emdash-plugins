@@ -1,4 +1,4 @@
-import { PREFIXES } from "./paths.js";
+import { OPENPANEL_SCRIPTS, PREFIXES } from "./paths.js";
 
 /**
  * The shim prepended to `gtm.js`. It encodes every same-origin request under an internal prefix,
@@ -10,12 +10,17 @@ import { PREFIXES } from "./paths.js";
  * The token encoding is a copy of `encodeToken` in `codec.ts`; the tests round-trip both.
  * `window` is the only free identifier, so tests can run the shim against a fake window.
  */
-export function shimSource(encodedPrefix: string, prefixes: readonly string[] = PREFIXES): string {
+export function shimSource(
+	encodedPrefix: string,
+	prefixes: readonly string[] = PREFIXES,
+	scripts: readonly string[] = OPENPANEL_SCRIPTS,
+): string {
 	return `"use strict";
 	if (window.__analyticsShim) return;
 	window.__analyticsShim = true;
 
 	var PREFIXES = ${JSON.stringify(prefixes.map((prefix) => `${prefix}/`))};
+	var SCRIPTS = ${JSON.stringify(scripts)};
 	var ENCODED = ${JSON.stringify(encodedPrefix)};
 
 	function ours(value) {
@@ -26,8 +31,11 @@ export function shimSource(encodedPrefix: string, prefixes: readonly string[] = 
 			for (var index = 0; index < PREFIXES.length; index += 1) {
 				if (url.pathname.indexOf(PREFIXES[index]) !== 0) continue;
 				// A script may derive sibling URLs from its own src (the OpenPanel SDK finds its
-				// replay helper that way) and a token carries no filename, so scripts stay plain.
-				return url.pathname.slice(-3) === ".js" ? null : url;
+				// replay helper that way) and a token carries no filename, so these stay plain.
+				for (var script = 0; script < SCRIPTS.length; script += 1) {
+					if (url.pathname === SCRIPTS[script]) return null;
+				}
+				return url;
 			}
 			return null;
 		} catch (error) {
@@ -124,6 +132,10 @@ export function shimSource(encodedPrefix: string, prefixes: readonly string[] = 
 }
 
 /** The shim as served: an IIFE that guards itself with a window flag. */
-export function renderShim(encodedPrefix: string, prefixes: readonly string[] = PREFIXES): string {
-	return `(function (window) {\n${shimSource(encodedPrefix, prefixes)}\n})(window);\n`;
+export function renderShim(
+	encodedPrefix: string,
+	prefixes: readonly string[] = PREFIXES,
+	scripts: readonly string[] = OPENPANEL_SCRIPTS,
+): string {
+	return `(function (window) {\n${shimSource(encodedPrefix, prefixes, scripts)}\n})(window);\n`;
 }

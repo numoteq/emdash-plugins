@@ -6,6 +6,7 @@ import {
 	encodedPrefix,
 	loaderPath,
 	matchPrefix,
+	OPENPANEL_SCRIPTS,
 	PREFIX,
 	PREFIXES,
 	SGTM_PREFIX,
@@ -93,18 +94,15 @@ export class ResponseCache extends Context.Service<
 
 export type Route = "loader" | "encoded" | "script" | "denied";
 
-/** The OpenPanel browser SDK and the session-replay recorder it derives from its own `src`. */
-const OPENPANEL_SCRIPTS = new Set(["/op1.js", "/op1-replay.js"]);
+/** The two scripts the shim leaves in the clear; nothing else is served without a token. */
+const SCRIPTS = new Set<string>(OPENPANEL_SCRIPTS);
 
 /**
- * The OpenPanel path to forward when `pathname` is one of the SDK's scripts. Scripts are never
- * encoded: the SDK derives `op1-replay.js` by rewriting the `src` of `op1.js`, which an opaque
- * token could not survive. Nothing else goes through in the clear.
+ * The OpenPanel path to forward when `pathname` is one of the SDK's scripts. The set is shared with
+ * the shim, so the browser and the Worker agree on exactly which URLs stay plain.
  */
 function openpanelScript(pathname: string): string | null {
-	if (!pathname.startsWith(`${PREFIX.openpanel}/`)) return null;
-	const path = pathname.slice(PREFIX.openpanel.length);
-	return OPENPANEL_SCRIPTS.has(path) ? path : null;
+	return SCRIPTS.has(pathname) ? pathname.slice(PREFIX.openpanel.length) : null;
 }
 
 /** Which of the proxy's paths `url` is, or `null` when the request belongs to the site. */
@@ -170,7 +168,10 @@ const rewriteScript = (
  * gtm.js with the shim in front. Retried, because loading it twice is harmless; cached unless the
  * request is a server-side preview or sGTM sets cookies on it.
  */
-const serveLoader = Effect.fnUntraced(function* (request: Request, clientIp: string | undefined) {
+const serveLoader = Effect.fn("analytics.loader")(function* (
+	request: Request,
+	clientIp: string | undefined,
+) {
 	const { gtmId } = yield* ProxyConfig;
 	const upstreams = yield* Upstreams;
 	const cache = yield* ResponseCache;
@@ -190,27 +191,28 @@ const serveLoader = Effect.fnUntraced(function* (request: Request, clientIp: str
 		}
 	}
 
-	const loader = yield* upstream
-		.fetch(`/gtm.js?id=${encodeURIComponent(gtmId)}`, {
-			headers: upstreamHeaders(request, clientIp, "sgtm"),
-			redirect: "manual",
-		})
-		.pipe(
-			Effect.filterOrFail(
-				(answer) => answer.status < 500,
-				(answer) => new UpstreamUnavailable({ reason: `HTTP ${answer.status}` }),
-			),
-			Effect.flatMap((answer) =>
-				answer.ok && isJavaScript(answer)
-					? rewriteScript(request, answer, {
-							shim: renderShim(encodedPrefix(url.host)),
-							cache: cacheable,
-						})
-					: Effect.succeed(answer),
-			),
-			timeout(LOADER_TIMEOUT),
-			Effect.retry({ times: 2, schedule: Schedule.exponential("200 millis") }),
-		);
+	const loader = yield* Effect.gen(function* () {
+		const answer = yield* upstream
+			.fetch(`/gtm.js?id=${encodeURIComponent(gtmId)}`, {
+				headers: upstreamHeaders(request, clientIp, "sgtm"),
+				redirect: "manual",
+			})
+			.pipe(
+				Effect.filterOrFail(
+					(response) => response.status < 500,
+					(response) => new UpstreamUnavailable({ reason: `HTTP ${response.status}` }),
+				),
+			);
+		if (!answer.ok || !isJavaScript(answer)) return answer;
+		return yield* rewriteScript(request, answer, {
+			shim: renderShim(encodedPrefix(url.host)),
+			cache: cacheable,
+		});
+	}).pipe(
+		// The timeout covers the body read too, not just the response headers.
+		timeout(LOADER_TIMEOUT),
+		Effect.retry({ times: 2, schedule: Schedule.exponential("200 millis") }),
+	);
 
 	if (cacheable && loader.ok && isJavaScript(loader) && !loader.headers.has("set-cookie")) {
 		yield* Effect.annotateCurrentSpan("analytics.cache", "miss");
@@ -220,7 +222,7 @@ const serveLoader = Effect.fnUntraced(function* (request: Request, clientIp: str
 });
 
 /** A decoded browser request, forwarded once: retrying a hit could count it twice. */
-const forwardEncoded = Effect.fnUntraced(function* (
+const forwardEncoded = Effect.fn("analytics.forward")(function* (
 	request: Request,
 	clientIp: string | undefined,
 ) {
@@ -236,25 +238,24 @@ const forwardEncoded = Effect.fnUntraced(function* (
 	if (upstream === undefined) return empty(404);
 
 	const hasBody = request.method !== "GET" && request.method !== "HEAD";
-	const answer = yield* upstream
-		.fetch(matched.path, {
+	return yield* Effect.gen(function* () {
+		const answer = yield* upstream.fetch(matched.path, {
 			method: request.method,
 			headers: upstreamHeaders(request, clientIp, matched.name),
 			body: hasBody ? request.body : null,
 			redirect: "manual",
 			...(hasBody ? { duplex: "half" } : {}),
-		})
-		.pipe(timeout(REQUEST_TIMEOUT));
-
-	// Scripts the container loads itself, such as gtag.js, need their hosts rewritten too.
-	if (matched.name === "sgtm" && answer.ok && isJavaScript(answer)) {
-		return yield* rewriteScript(request, answer);
-	}
-	return answer;
+		});
+		// Scripts the container loads itself, such as gtag.js, need their hosts rewritten too.
+		if (matched.name === "sgtm" && answer.ok && isJavaScript(answer)) {
+			return yield* rewriteScript(request, answer);
+		}
+		return answer;
+	}).pipe(timeout(REQUEST_TIMEOUT));
 });
 
 /** The OpenPanel SDK script, served first-party and cached; replay paths go through the shim. */
-const serveOpenpanelScript = Effect.fnUntraced(function* (
+const serveOpenpanelScript = Effect.fn("analytics.script")(function* (
 	request: Request,
 	clientIp: string | undefined,
 ) {
@@ -272,18 +273,20 @@ const serveOpenpanelScript = Effect.fnUntraced(function* (
 		return cached.value;
 	}
 
-	const answer = yield* upstream
-		.fetch(path, { headers: upstreamHeaders(request, clientIp, "openpanel"), redirect: "manual" })
-		.pipe(timeout(REQUEST_TIMEOUT));
+	return yield* Effect.gen(function* () {
+		const answer = yield* upstream.fetch(path, {
+			headers: upstreamHeaders(request, clientIp, "openpanel"),
+			redirect: "manual",
+		});
+		if (!answer.ok || !isJavaScript(answer)) return answer;
 
-	if (!answer.ok || !isJavaScript(answer)) return answer;
-
-	const body = yield* readBody(answer);
-	const script = rebuildResponse(answer, body, {
-		"cache-control": `public, max-age=${CACHE_TTL_SECONDS}`,
-	});
-	yield* cache.put(key, script.clone());
-	return script;
+		const body = yield* readBody(answer);
+		const script = rebuildResponse(answer, body, {
+			"cache-control": `public, max-age=${CACHE_TTL_SECONDS}`,
+		});
+		yield* cache.put(key, script.clone());
+		return script;
+	}).pipe(timeout(REQUEST_TIMEOUT));
 });
 
 /**

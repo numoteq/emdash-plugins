@@ -156,7 +156,7 @@ await locals.analytics.event(
 );
 ```
 
-`locals.analytics.event(name, params)`:
+`locals.analytics.event(name, params, options)`:
 
 - sends in the background through `waitUntil`, so the response does not wait for it; the returned promise exists so a test can await it,
 - reads consent at call time from `Astro.locals.c15t.snapshot.effectivePermissions`, because c15t's middleware runs after ours; without c15t everything counts as denied (`gcs=G100`) and you pass consent to `createServerEvents` yourself,
@@ -164,18 +164,20 @@ await locals.analytics.event(
 
 The sender adds what the browser would have sent, read from the request:
 
-| Field | Source |
-| --- | --- |
-| `client_id` | `_ga`; a random UUID when the visitor has no cookie |
-| `session_id` | `_ga_<id>`, both `GS1` and `GS2` formats |
-| `ip_override`, `user_agent` | `cf-connecting-ip` (or `x-forwarded-for`), `user-agent` |
-| `page_location` | the request's `Referer`, or a `pageLocation` you pass |
-| `_fbp` / `_fbc` | the cookies; `_fbc` is rebuilt from `fbclid` when the cookie is not there yet |
-| `user_data.sha256_email_address`, `sha256_phone_number` | `user: { email, phone }`, normalized and SHA-256 hashed in the Worker; plain values never leave it |
+| Field | Source | Sent with |
+| --- | --- | --- |
+| `page_location` | the request's `Referer`, or a `pageLocation` you pass | always |
+| `ip_override`, `user_agent` | `cf-connecting-ip` (or `x-forwarded-for`), `user-agent` | always |
+| `client_id` | `_ga`; a random UUID when there is no cookie or analytics consent | `measurement` |
+| `session_id` | `_ga_<id>` of the configured GA4 `measurementId` (`G-…`), both `GS1` and `GS2` formats | `measurement` |
+| `_fbp` / `_fbc` | the cookies; `_fbc` is rebuilt from `fbclid` when the cookie is not there yet | `marketing` |
+| `user_data.sha256_email_address`, `sha256_phone_number` | `user: { email, phone }`, normalized and SHA-256 hashed in the Worker | `marketing` |
 
-Consent goes both ways: the MP body's `consent` object for the record, and the `gcs` query parameter (`G1` + ad + analytics, the same signal gtag sends) because server tags read consent from `x-ga-gcs` and never from the body.
+A cookie of another property is never mistaken for ours: `session_id` comes from `_ga_<id>` of the `measurementId` you configure, and without that option the event carries none. A GA4 `cookie_prefix` renames those cookies, so such a site gets no `session_id` either. A hashed e-mail is still personal data, so it travels only with marketing consent; the plain values never leave the Worker. The IP, the user agent and the page are the open part of the hit (Meta matches on them without cookies) and go out even when nothing is granted.
 
-Without Effect, `createServerEvents(options)` returns `{ send(request, event, consent) }`. With Effect, use the `ServerEvents` service; `./server` exports it with `RequestContext`, `send`, `gcsOf` and the typed errors:
+Consent goes both ways: the MP body's `consent` object for the record, and the `gcs` query parameter (`G1` + ad + analytics, the same signal gtag sends). Server tags read consent from `x-ga-gcs`, which the Measurement Protocol client builds from `gcs`; the claim comes from the container bytecode, so confirm one hit in the sGTM Preview after you change it.
+
+Without Effect, `createServerEvents(options)` returns `{ send(request, event, consent) }`; it is the sender alone, so it needs `upstream` again. Without an upstream it logs why once and drops events. With Effect, use the `ServerEvents` service; `./server` exports it with `RequestContext`, `gcsOf` and the typed errors:
 
 ```ts
 import { Effect } from "effect";
@@ -183,12 +185,14 @@ import { RequestContext, ServerEvents } from "@numoteq/analytics/server";
 
 const program = Effect.gen(function* () {
 	const events = yield* ServerEvents;
-	yield* events.send(RequestContext.fromRequest(request, consent), {
+	yield* events.send(RequestContext.fromRequest(request, consent, "G-XXXXXXXXXX"), {
 		name: "generate_lead",
 		params: { form_id: "contact" },
 	});
 });
 ```
+
+`createAnalytics({ gtmId, sgtm, openpanel, serverEvents })` builds the proxy and the sender on **one** runtime and returns `{ handle, send }`; that is what the Astro integration uses. `serverEvents: false` turns the sender off silently, for a site that only proxies. `createProxyHandler(options)` is `handle` alone, `createServerEvents(options)` is `send` alone.
 
 An event is sent once. No vendor downstream deduplicates a repeated event, and a `fetch` that fails cannot be told apart from one that arrived and lost its answer, so there is no retry.
 

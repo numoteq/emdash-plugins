@@ -12,7 +12,6 @@ export {
 	createServerEvents,
 	gcsOf,
 	resolveServerEventsOptions,
-	send,
 } from "./send.js";
 export type {
 	ServerEvent,
