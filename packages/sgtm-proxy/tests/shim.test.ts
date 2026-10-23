@@ -91,7 +91,9 @@ describe("shim", () => {
 		for (const value of sent) {
 			expect(String(value)).not.toContain("_sgtm");
 			expect(String(value)).not.toContain("collect");
-			expect(String(value)).not.toContain("G-");
+			// The token is base64url of randomly salted data, so the two-character "G-" occurs by
+			// chance in about 1 in 70 tokens; only the whole identifier proves it was not leaked.
+			expect(String(value)).not.toContain("G-WSNXXNBYV7");
 		}
 	});
 
